@@ -38,7 +38,7 @@ class DeterministicActor(nn.Module):
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
         features = self.features_extractor(observation)
         latent = self.mlp_extractor.forward_actor(features)
-        return torch.clamp(self.action_net(latent), -10.0, 10.0)
+        return torch.clamp(self.action_net(latent), -1.0, 1.0)
 
 
 class RewardTermsCallback(BaseCallback):
@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--command-profile",
-        choices=("train", "full", "stand"),
+        choices=("train", "forward", "full", "stand"),
         default="train",
     )
     parser.add_argument("--device", default="auto")
@@ -133,6 +133,7 @@ def main() -> None:
             train_env,
             policy_kwargs={
                 "activation_fn": nn.ELU,
+                "log_std_init": -2.0,
                 "net_arch": {
                     "pi": [512, 256, 128],
                     "vf": [512, 256, 128],
@@ -145,7 +146,7 @@ def main() -> None:
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.005,
+            ent_coef=0.001,
             max_grad_norm=1.0,
             target_kl=args.target_kl,
             tensorboard_log=str(args.run_dir / "tensorboard"),

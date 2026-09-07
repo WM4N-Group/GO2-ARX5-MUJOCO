@@ -62,7 +62,7 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
         super().__init__()
         if render_mode not in (None, "human"):
             raise ValueError(f"Unsupported render mode: {render_mode}")
-        if command_profile not in ("train", "full", "stand"):
+        if command_profile not in ("train", "forward", "full", "stand"):
             raise ValueError(f"Unsupported command profile: {command_profile}")
 
         self.render_mode = render_mode
@@ -100,7 +100,7 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
         )
 
         self.action_space = gym.spaces.Box(
-            -10.0, 10.0, shape=(18,), dtype=np.float32
+            -1.0, 1.0, shape=(18,), dtype=np.float32
         )
         self.observation_space = gym.spaces.Box(
             -100.0, 100.0, shape=(210,), dtype=np.float32
@@ -133,6 +133,13 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
     def _sample_command(self) -> None:
         if self.command_profile == "stand":
             self.velocity_command.fill(0.0)
+            self.ee_command[:] = [0.425, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0]
+        elif self.command_profile == "forward":
+            self.velocity_command[:] = [
+                self.np_random.uniform(0.2, 0.4),
+                0.0,
+                0.0,
+            ]
             self.ee_command[:] = [0.425, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0]
         else:
             full = self.command_profile == "full"
@@ -259,12 +266,18 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
             np.clip(abs(ee_quat[0]), 0.0, 1.0)
         )
         terms["ee_orientation"] = -1.5 * orientation_error
-        terms["linear_velocity"] = 3.0 * np.exp(
-            -np.sum((linear_velocity[:2] - self.velocity_command[:2]) ** 2) / 0.25
+        velocity_error = linear_velocity[:2] - self.velocity_command[:2]
+        terms["linear_velocity"] = 4.0 * np.exp(
+            -np.sum(velocity_error**2) / 0.04
         )
-        terms["yaw_velocity"] = 1.5 * np.exp(
-            -((angular_velocity[2] - self.velocity_command[2]) ** 2) / 0.25
+        terms["linear_velocity_error"] = -8.0 * float(
+            np.sum(velocity_error**2)
         )
+        yaw_velocity_error = angular_velocity[2] - self.velocity_command[2]
+        terms["yaw_velocity"] = 2.0 * np.exp(
+            -(yaw_velocity_error**2) / 0.04
+        )
+        terms["yaw_velocity_error"] = -3.0 * yaw_velocity_error**2
         terms["base_height"] = np.exp(
             -abs(self.data.qpos[2] - 0.28) / 0.02
         )
@@ -300,8 +313,9 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
         upright_scale = np.clip(-gravity[2], 0.0, 0.7) / 0.7
         terms["feet_slide"] = -0.1 * slide * upright_scale
         if np.linalg.norm(self.velocity_command[:2]) > 0.1:
+            rewarded_air_time = np.maximum(landing_air_time - 0.15, 0.0)
             terms["feet_air_time"] = 0.5 * float(
-                np.sum((landing_air_time - 0.5) * first_contact)
+                np.sum(rewarded_air_time * first_contact)
             )
         else:
             terms["feet_air_time"] = 0.0
@@ -328,7 +342,7 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
         mirror_error += np.sum(
             (policy_joint_pos[3:6] - policy_joint_pos[9:12]) ** 2
         )
-        terms["joint_mirror"] = -0.075 * mirror_error * upright_scale
+        terms["joint_mirror"] = -0.01 * mirror_error * upright_scale
         lower_violation = np.maximum(
             self.joint_low - self.data.qpos[7:], 0.0
         )
@@ -390,7 +404,7 @@ class Go2ARX5Env(gym.Env[np.ndarray, np.ndarray]):
     def step(
         self, action: np.ndarray
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
-        action = np.clip(np.asarray(action, dtype=np.float64), -10.0, 10.0)
+        action = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
         target_policy = (
             self.default_qpos[MJ_POLICY_INDICES]
             + action * self.action_scale[MJ_POLICY_INDICES]

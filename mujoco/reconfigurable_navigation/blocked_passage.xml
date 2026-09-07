@@ -1,0 +1,48 @@
+<mujoco model="go2_arx5 blocked passage">
+  <include file="../robots/go2_arx5/go2_arx5.xml"/>
+  <compiler meshdir="../robots/go2_arx5/assets"/>
+
+  <statistic center="0 0 0.2" extent="3.2"/>
+
+  <visual>
+    <headlight diffuse="0.7 0.7 0.7" ambient="0.35 0.35 0.35" specular="0 0 0"/>
+    <rgba haze="0.15 0.2 0.25 1"/>
+    <global azimuth="-130" elevation="-25"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.25 0.35 0.45" rgb2="0.02 0.02 0.03" width="512" height="3072"/>
+    <texture type="2d" name="nav_ground" builtin="checker" mark="edge" rgb1="0.24 0.27 0.28" rgb2="0.18 0.20 0.21" markrgb="0.7 0.7 0.7" width="300" height="300"/>
+    <material name="nav_ground" texture="nav_ground" texuniform="true" texrepeat="8 8" reflectance="0.1"/>
+    <material name="wall_mat" rgba="0.68 0.70 0.72 1"/>
+    <material name="box_mat" rgba="0.88 0.45 0.12 1"/>
+    <material name="goal_mat" rgba="0.12 0.72 0.38 0.45"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 4" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="nav_ground" friction="1.2 0.02 0.002"/>
+
+    <body name="wall_left" pos="0 0.9 0.3">
+      <geom name="wall_left_geom" type="box" size="3.0 0.1 0.3" material="wall_mat"/>
+    </body>
+    <body name="wall_right" pos="0 -0.9 0.3">
+      <geom name="wall_right_geom" type="box" size="3.0 0.1 0.3" material="wall_mat"/>
+    </body>
+    <body name="wall_start" pos="-3.0 0 0.3">
+      <geom name="wall_start_geom" type="box" size="0.1 1.0 0.3" material="wall_mat"/>
+    </body>
+    <body name="wall_goal" pos="3.0 0 0.3">
+      <geom name="wall_goal_geom" type="box" size="0.1 1.0 0.3" material="wall_mat"/>
+    </body>
+
+    <body name="movable_box" pos="0 0 0.3">
+      <freejoint name="movable_box_joint"/>
+      <geom name="movable_box_geom" type="box" size="0.22 0.72 0.3" material="box_mat" mass="5" friction="0.8 0.02 0.002"/>
+    </body>
+
+    <body name="goal_marker" pos="1.80 0 0.012">
+      <geom name="goal_marker_geom" type="cylinder" size="0.18 0.012" material="goal_mat" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>
