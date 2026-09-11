@@ -59,6 +59,14 @@ class Go2ARX5FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm=1.0,
     )
 
+
+@configclass
+class Go2ARX5ClimbPPORunnerCfg(Go2ARX5FlatPPORunnerCfg):
+    max_iterations = 1500
+    save_interval = 100
+    experiment_name = "go2_arx5_climb"
+    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+
 # WBC
 @configclass
 class Go2ARX5WBCPPORunnerCfg(RslRlOnPolicyRunnerCfg):

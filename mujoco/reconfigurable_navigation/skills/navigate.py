@@ -19,6 +19,7 @@ def wrap_angle(angle: float) -> float:
 class NavigateConfig:
     position_tolerance: float = 0.12
     yaw_tolerance: float = 0.15
+    min_linear_speed: float = 0.15
     max_forward_speed: float = 0.45
     max_lateral_speed: float = 0.25
     max_yaw_rate: float = 0.70
@@ -95,7 +96,7 @@ class NavigateSkill(Skill):
             )
             travel_heading = math.atan2(error_world[1], error_world[0])
             heading_error = wrap_angle(travel_heading - robot_yaw)
-            velocity = np.array(
+            planar_velocity = np.array(
                 [
                     np.clip(
                         self.config.position_gain * error_body[0],
@@ -107,6 +108,15 @@ class NavigateSkill(Skill):
                         -self.config.max_lateral_speed,
                         self.config.max_lateral_speed,
                     ),
+                ]
+            )
+            planar_speed = float(np.linalg.norm(planar_velocity))
+            if 0.0 < planar_speed < self.config.min_linear_speed:
+                planar_velocity *= self.config.min_linear_speed / planar_speed
+            velocity = np.array(
+                [
+                    planar_velocity[0],
+                    planar_velocity[1],
                     np.clip(
                         self.config.yaw_gain * heading_error,
                         -self.config.max_yaw_rate,
@@ -124,7 +134,7 @@ class NavigateSkill(Skill):
     @staticmethod
     def _default_ee_pose() -> np.ndarray:
         return np.array(
-            [0.425, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0], dtype=np.float32
+            [0.5, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0], dtype=np.float32
         )
 
     def _stop_command(self) -> SkillCommand:

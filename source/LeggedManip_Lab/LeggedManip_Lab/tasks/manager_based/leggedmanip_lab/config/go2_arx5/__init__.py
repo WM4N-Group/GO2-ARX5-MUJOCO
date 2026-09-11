@@ -22,6 +22,27 @@ gym.register(
     },
 )
 
+# Climb
+gym.register(
+    id="GO2-ARX5-Climb",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.climb_env_cfg:Go2ARX5ClimbEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:Go2ARX5ClimbPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="GO2-ARX5-Climb-Play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.climb_env_cfg:Go2ARX5ClimbEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:Go2ARX5ClimbPPORunnerCfg",
+    },
+)
+
 # WBC
 gym.register(
     id="GO2-ARX5-WBC",

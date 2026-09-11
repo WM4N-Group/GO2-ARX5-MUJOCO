@@ -48,6 +48,9 @@
       <default class="arx5_visual">
         <geom material="default_material" contype="0" conaffinity="0" group="2" />
       </default>
+      <default class="arx5_collision">
+        <geom contype="2" conaffinity="0" condim="6" friction="0.8 0.02 0.01" group="3" rgba="0 0 0 0" />
+      </default>
     </default>
   </default>
 
@@ -227,40 +230,48 @@
           <joint name="x5_joint1" type="hinge" ref="0.0" class="arx5_motor" range="-3 3" damping="1" axis="0 0 1" />
           <inertial pos="0.0054231 -0.0080289 0.017086" quat="1.0 0.0 0.0 0.0" mass="0.066982" diaginertia="8e-05 3e-05 8e-05" />
           <geom name="x5_link1_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link1" class="arx5_visual" />
+          <geom name="x5_link1_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link1" class="arx5_collision" />
           
           <body name="x5_link2" pos="0.02 0 0.04" quat="1.0 0.0 0.0 0.0">
             <joint name="x5_joint2" type="hinge" ref="0.0" class="arx5_motor" range="-0 3" damping="1" axis="0 1 0" />
             <inertial pos="-0.13237 0.0020852 0.00010549" quat="1.0 0.0 0.0 0.0" mass="1.0795" diaginertia="0.00051 0.01599 0.01605" />
             <geom name="x5_link2_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link2" class="arx5_visual" />
+            <geom name="x5_link2_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link2" class="arx5_collision" />
             
             <body name="x5_link3" pos="-0.264 0 0" quat="-3.673205103346574e-06 0.9999999999932537 0.0 -0.0">
               <joint name="x5_joint3" type="hinge" ref="0.0" class="arx5_motor" range="-0 3"  damping="1" axis="0 1 0" />
               <inertial pos="0.18531 0.00068376 -0.051638" quat="1.0 0.0 0.0 0.0" mass="0.54534" diaginertia="0.00036 0.00423 0.0042" />
               <geom name="x5_link3_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link3" class="arx5_visual" />
+              <geom name="x5_link3_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link3" class="arx5_collision" />
               
               <body name="x5_link4" pos="0.245 0 -0.056" quat="1.0 0.0 0.0 0.0">
                 <joint name="x5_joint4" type="hinge" ref="0.0" class="arx5_motor" range="-1.5 1.5" damping="1" axis="0 1 0" />
                 <inertial pos="0.040231 0.0044807 -0.035335" quat="1.0 0.0 0.0 0.0" mass="0.11714" diaginertia="0.00019 0.00023 0.00014" />
                 <geom name="x5_link4_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link4" class="arx5_visual" />
+                <geom name="x5_link4_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link4" class="arx5_collision" />
                 
                 <body name="x5_link5" pos="0.06775 0.0005 -0.0865" quat="1.0 0.0 0.0 0.0">
                   <joint name="x5_joint5" type="hinge" ref="0.0" class="arx5_motor" range="-1.5 1.5" damping="1" axis="0 0 1" />
                   <inertial pos="0.003612 -1.5455E-05 0.055214" quat="1.0 0.0 0.0 0.0" mass="0.63488" diaginertia="0.00083 0.00082 0.00026" />
                   <geom name="x5_link5_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link5" class="arx5_visual" />
+                  <geom name="x5_link5_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link5" class="arx5_collision" />
                   
                   <body name="x5_link6" pos="0.02895 0 0.0865" quat="-3.673205103346574e-06 -0.9999999999932537 -0.0 0.0">
                     <joint name="x5_joint6" type="hinge" ref="0.0" class="arx5_motor" range="-3 3" damping="1" axis="1 0 0" />
                     <inertial pos="0.041697 2.4368E-05 0.00014464" quat="1.0 0.0 0.0 0.0" mass="0.44089" diaginertia="0.00038 0.00028 0.0005" />
                     <geom name="x5_link6_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link6" class="arx5_visual" />
+                    <geom name="x5_link6_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link6" class="arx5_collision" />
                     
                     <body name="x5_link7" pos="0.08657 0.024896 -0.0002436" quat="1.0 0.0 0.0 0.0">
                       <inertial pos="-0.00035522 -0.007827 -0.0029883" quat="1.0 0.0 0.0 0.0" mass="0.064798" diaginertia="2e-05 3e-05 3e-05" />
                       <geom name="x5_link7_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link7" class="arx5_visual" />
+                      <geom name="x5_link7_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link7" class="arx5_collision" />
                     </body>
                     
                     <body name="x5_link8" pos="0.08657 -0.0249 -0.00024366" quat="1.0 0.0 0.0 0.0">
                       <inertial pos="-0.00035522 0.0078277 0.0024201" quat="1.0 0.0 0.0 0.0" mass="0.064798" diaginertia="2e-05 3e-05 3e-05" />
                       <geom name="x5_link8_visual" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link8" class="arx5_visual" />
+                      <geom name="x5_link8_collision" pos="0 0 0" quat="1.0 0.0 0.0 0.0" type="mesh" mesh="x5_link8" class="arx5_collision" />
                     </body>
                   </body>
                 </body>

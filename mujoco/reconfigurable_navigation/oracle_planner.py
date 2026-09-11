@@ -8,7 +8,13 @@ import math
 import numpy as np
 
 from .occupancy import GridConfig, OccupancyGrid
-from .representations import ObjectState, OracleObservation, SkillAction, SkillType
+from .representations import (
+    ObjectState,
+    ObjectType,
+    OracleObservation,
+    SkillAction,
+    SkillType,
+)
 
 
 @dataclass(frozen=True)
@@ -18,9 +24,24 @@ class PlanResult:
     reason: str
 
 
+@dataclass(frozen=True)
+class PlannerConfig:
+    goal_tolerance: float = 0.12
+    approach_position_tolerance: float = 0.12
+    approach_yaw_tolerance: float = 0.15
+    nominal_base_clearance: float = 0.25
+    support_position_margin: float = 0.15
+    support_height_tolerance: float = 0.10
+
+
 class OraclePlanner:
-    def __init__(self, grid_config: GridConfig | None = None) -> None:
+    def __init__(
+        self,
+        grid_config: GridConfig | None = None,
+        config: PlannerConfig | None = None,
+    ) -> None:
         self.grid = OccupancyGrid(grid_config)
+        self.config = config or PlannerConfig()
 
     @staticmethod
     def robot_radius(observation: OracleObservation) -> float:
@@ -56,35 +77,207 @@ class OraclePlanner:
                 blockers.append(obj)
         return tuple(blockers)
 
-    def plan(
+    @staticmethod
+    def _platform_top(platform: ObjectState) -> float:
+        return float(platform.center[2] + platform.size[2] / 2.0)
+
+    def _current_support_platform(
+        self, observation: OracleObservation
+    ) -> ObjectState | None:
+        robot_xy = observation.robot_state[:2]
+        robot_height = float(observation.robot_state[2])
+        for platform in observation.objects:
+            if (
+                platform.object_type != ObjectType.PLATFORM
+                or not platform.supportable
+            ):
+                continue
+            delta = robot_xy - platform.center[:2]
+            cos_yaw = math.cos(platform.yaw)
+            sin_yaw = math.sin(platform.yaw)
+            local = np.array(
+                [
+                    cos_yaw * delta[0] + sin_yaw * delta[1],
+                    -sin_yaw * delta[0] + cos_yaw * delta[1],
+                ]
+            )
+            half_size = platform.size[:2] / 2.0
+            expected_height = (
+                self._platform_top(platform)
+                + self.config.nominal_base_clearance
+            )
+            if (
+                np.all(np.abs(local) <= half_size + self.config.support_position_margin)
+                and abs(robot_height - expected_height)
+                <= self.config.support_height_tolerance
+            ):
+                return platform
+        return None
+
+    def _path_between(
         self,
         observation: OracleObservation,
+        start_xy: np.ndarray,
+        goal_xy: np.ndarray,
+        excluded_ids: frozenset[int] = frozenset(),
+    ) -> list[np.ndarray] | None:
+        self.grid.rasterize(
+            observation.objects,
+            self.robot_radius(observation),
+            excluded_ids=excluded_ids,
+        )
+        return self.grid.astar(start_xy, goal_xy)
+
+    def _climb_plan(
+        self,
+        observation: OracleObservation,
+        goal_pose: np.ndarray,
         push_target: np.ndarray,
-    ) -> PlanResult:
-        direct_path = self.path(observation)
-        goal_pose = np.array(
-            [observation.goal[0], observation.goal[1], 0.0], dtype=np.float32
-        )
-        if direct_path is not None:
-            return PlanResult(
-                actions=(
-                    SkillAction(SkillType.NAV, goal_pose),
-                    SkillAction(SkillType.STOP),
-                ),
-                direct_path=direct_path,
-                reason="goal_directly_reachable",
+    ) -> PlanResult | None:
+        candidates: list[tuple[float, PlanResult]] = []
+        platform_too_high = False
+        for platform in observation.objects:
+            if (
+                platform.object_type != ObjectType.PLATFORM
+                or not platform.supportable
+                or platform.climb_entry_pose.shape != (3,)
+                or platform.climb_landing_pose.shape != (3,)
+                or not np.isfinite(platform.climb_entry_pose).all()
+                or not np.isfinite(platform.climb_landing_pose).all()
+            ):
+                continue
+            top_height = self._platform_top(platform)
+            if top_height > observation.capability.max_step_height:
+                platform_too_high = True
+                continue
+            landing_path = self._path_between(
+                observation,
+                platform.climb_landing_pose[:2],
+                observation.goal[:2],
+                frozenset({platform.object_id}),
             )
+            if landing_path is None:
+                continue
+            approach_path = self._path_between(
+                observation,
+                observation.robot_state[:2],
+                platform.climb_entry_pose[:2],
+            )
+            if approach_path is None:
+                blockers = tuple(
+                    obj
+                    for obj in observation.objects
+                    if obj.movable
+                    and self._path_between(
+                        observation,
+                        observation.robot_state[:2],
+                        platform.climb_entry_pose[:2],
+                        frozenset({obj.object_id}),
+                    )
+                    is not None
+                )
+                if blockers:
+                    blocker = min(
+                        blockers,
+                        key=lambda obj: np.linalg.norm(
+                            obj.center[:2] - observation.robot_state[:2]
+                        ),
+                    )
+                    climb_actions = (
+                        SkillAction(
+                            SkillType.NAV,
+                            platform.climb_entry_pose,
+                        ),
+                        SkillAction(
+                            SkillType.CLIMB,
+                            np.array(
+                                [
+                                    platform.climb_landing_pose[0],
+                                    platform.climb_landing_pose[1],
+                                    top_height
+                                    + self.config.nominal_base_clearance,
+                                    platform.climb_landing_pose[2],
+                                ],
+                                dtype=np.float32,
+                            ),
+                            support_id=platform.object_id,
+                        ),
+                        SkillAction(SkillType.NAV, goal_pose),
+                        SkillAction(SkillType.STOP),
+                    )
+                    return self._push_plan(
+                        observation,
+                        blocker,
+                        push_target,
+                        climb_actions,
+                        "reconfiguration_for_climb",
+                    )
+                continue
 
-        blockers = self.blocking_objects(observation)
-        if not blockers:
-            return PlanResult((), None, "no_single_movable_blocker")
+            entry_position_error = float(
+                np.linalg.norm(
+                    platform.climb_entry_pose[:2]
+                    - observation.robot_state[:2]
+                )
+            )
+            entry_yaw_error = (
+                float(platform.climb_entry_pose[2])
+                - float(observation.robot_state[5])
+                + math.pi
+            ) % (2.0 * math.pi) - math.pi
+            landing_pose = np.array(
+                [
+                    platform.climb_landing_pose[0],
+                    platform.climb_landing_pose[1],
+                    top_height + self.config.nominal_base_clearance,
+                    platform.climb_landing_pose[2],
+                ],
+                dtype=np.float32,
+            )
+            actions = [
+                SkillAction(
+                    SkillType.CLIMB,
+                    landing_pose,
+                    support_id=platform.object_id,
+                ),
+                SkillAction(SkillType.NAV, goal_pose),
+                SkillAction(SkillType.STOP),
+            ]
+            if (
+                entry_position_error > self.config.approach_position_tolerance
+                or abs(entry_yaw_error) > self.config.approach_yaw_tolerance
+            ):
+                actions.insert(
+                    0,
+                    SkillAction(
+                        SkillType.NAV,
+                        platform.climb_entry_pose,
+                    ),
+                )
+            candidates.append(
+                (
+                    entry_position_error,
+                    PlanResult(
+                        actions=tuple(actions),
+                        direct_path=approach_path,
+                        reason="climb_required",
+                    ),
+                )
+            )
+        if candidates:
+            return min(candidates, key=lambda candidate: candidate[0])[1]
+        if platform_too_high:
+            return PlanResult((), None, "platform_too_high")
+        return None
 
-        blocker = min(
-            blockers,
-            key=lambda obj: np.linalg.norm(
-                obj.center[:2] - observation.robot_state[:2]
-            ),
-        )
+    def _push_plan(
+        self,
+        observation: OracleObservation,
+        blocker: ObjectState,
+        push_target: np.ndarray,
+        tail_actions: tuple[SkillAction, ...],
+        reason: str,
+    ) -> PlanResult:
         if blocker.mass > observation.capability.max_pushable_mass:
             return PlanResult((), None, "blocking_object_too_heavy")
 
@@ -105,26 +298,102 @@ class OraclePlanner:
             [approach_xy[0], approach_xy[1], approach_yaw], dtype=np.float32
         )
 
-        self.grid.rasterize(
-            observation.objects, self.robot_radius(observation)
-        )
-        approach_path = self.grid.astar(
-            observation.robot_state[:2], approach_xy
+        approach_path = self._path_between(
+            observation,
+            observation.robot_state[:2],
+            approach_xy,
         )
         if approach_path is None:
             return PlanResult((), None, "blocker_has_no_reachable_push_face")
 
-        return PlanResult(
-            actions=(
-                SkillAction(SkillType.NAV, approach_pose),
-                SkillAction(
-                    SkillType.PUSH,
-                    target,
-                    object_id=blocker.object_id,
-                ),
-                SkillAction(SkillType.NAV, goal_pose),
-                SkillAction(SkillType.STOP),
+        approach_position_error = float(
+            np.linalg.norm(approach_xy - observation.robot_state[:2])
+        )
+        approach_yaw_error = (
+            approach_yaw - float(observation.robot_state[5]) + math.pi
+        ) % (2.0 * math.pi) - math.pi
+        actions = [
+            SkillAction(
+                SkillType.PUSH,
+                target,
+                object_id=blocker.object_id,
             ),
+            *tail_actions,
+        ]
+        if (
+            approach_position_error > self.config.approach_position_tolerance
+            or abs(approach_yaw_error) > self.config.approach_yaw_tolerance
+        ):
+            actions.insert(0, SkillAction(SkillType.NAV, approach_pose))
+        return PlanResult(
+            actions=tuple(actions),
             direct_path=None,
-            reason="reconfiguration_required",
+            reason=reason,
+        )
+
+    def plan(
+        self,
+        observation: OracleObservation,
+        push_target: np.ndarray,
+    ) -> PlanResult:
+        direct_path = self.path(observation)
+        goal_pose = np.array(
+            [observation.goal[0], observation.goal[1], 0.0], dtype=np.float32
+        )
+        if (
+            np.linalg.norm(observation.goal[:2] - observation.robot_state[:2])
+            <= self.config.goal_tolerance
+        ):
+            return PlanResult(
+                actions=(SkillAction(SkillType.STOP),),
+                direct_path=direct_path,
+                reason="goal_reached",
+            )
+        support_platform = self._current_support_platform(observation)
+        if support_platform is not None:
+            support_path = self.path(
+                observation, frozenset({support_platform.object_id})
+            )
+            if support_path is not None:
+                return PlanResult(
+                    actions=(
+                        SkillAction(SkillType.NAV, goal_pose),
+                        SkillAction(SkillType.STOP),
+                    ),
+                    direct_path=support_path,
+                    reason="goal_reachable_from_platform",
+                )
+        if direct_path is not None:
+            return PlanResult(
+                actions=(
+                    SkillAction(SkillType.NAV, goal_pose),
+                    SkillAction(SkillType.STOP),
+                ),
+                direct_path=direct_path,
+                reason="goal_directly_reachable",
+            )
+
+        climb_plan = self._climb_plan(observation, goal_pose, push_target)
+        if climb_plan is not None:
+            return climb_plan
+
+        blockers = self.blocking_objects(observation)
+        if not blockers:
+            return PlanResult((), None, "no_single_movable_blocker")
+
+        blocker = min(
+            blockers,
+            key=lambda obj: np.linalg.norm(
+                obj.center[:2] - observation.robot_state[:2]
+            ),
+        )
+        return self._push_plan(
+            observation,
+            blocker,
+            push_target,
+            (
+            SkillAction(SkillType.NAV, goal_pose),
+            SkillAction(SkillType.STOP),
+            ),
+            "reconfiguration_required",
         )

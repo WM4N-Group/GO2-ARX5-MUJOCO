@@ -20,9 +20,13 @@ DEPLOY_CONFIG_PATH = ROOT_DIR / "deploy/deploy_mujoco/go2_arx5/config.yaml"
 class BlockedPassageEnv:
     """Deterministic first scenario with a movable box blocking a corridor."""
 
-    def __init__(self, capability: Capability | None = None) -> None:
+    def __init__(
+        self,
+        capability: Capability | None = None,
+        xml_path: Path | str = XML_PATH,
+    ) -> None:
         self.capability = capability or Capability()
-        self.model = mujoco.MjModel.from_xml_path(str(XML_PATH))
+        self.model = mujoco.MjModel.from_xml_path(str(xml_path))
         self.data = mujoco.MjData(self.model)
         with DEPLOY_CONFIG_PATH.open(encoding="utf-8") as config_file:
             self.deploy_cfg = yaml.safe_load(config_file)
@@ -35,8 +39,39 @@ class BlockedPassageEnv:
         self.box_joint_id = self._joint_id("movable_box_joint")
         self.box_body_id = self._body_id("movable_box")
         self.goal_body_id = self._body_id("goal_marker")
+        self.base_body_id = self._body_id("base")
+        self.manipulator_body_id = self._body_id("x5_base_link")
+        self.floor_geom_id = self._geom_id("floor")
+        self.box_geom_id = self._geom_id("movable_box_geom")
+        self.end_effector_geom_ids = frozenset(
+            self._geom_id(name)
+            for name in ("x5_link7_collision", "x5_link8_collision")
+        )
+        self.foot_geom_ids = frozenset(
+            self._geom_id(name) for name in ("FR", "FL", "RR", "RL")
+        )
+        self.wall_geom_ids = frozenset(
+            self._geom_id(name)
+            for name in (
+                "wall_left_geom",
+                "wall_right_geom",
+                "wall_start_geom",
+                "wall_goal_geom",
+            )
+        )
+        self.robot_geom_ids = frozenset(
+            geom_id
+            for geom_id, body_id in enumerate(self.model.geom_bodyid)
+            if self._body_descends_from(int(body_id), self.base_body_id)
+        )
+        self.manipulator_geom_ids = frozenset(
+            geom_id
+            for geom_id, body_id in enumerate(self.model.geom_bodyid)
+            if self._body_descends_from(int(body_id), self.manipulator_body_id)
+        )
         self.robot_qpos_adr = int(self.model.jnt_qposadr[self.robot_joint_id])
         self.box_qpos_adr = int(self.model.jnt_qposadr[self.box_joint_id])
+        self.box_dof_adr = int(self.model.jnt_dofadr[self.box_joint_id])
         self.rng = np.random.default_rng()
 
     def _joint_id(self, name: str) -> int:
@@ -54,6 +89,78 @@ class BlockedPassageEnv:
         if body_id < 0:
             raise ValueError(f"Body not found: {name}")
         return body_id
+
+    def _geom_id(self, name: str) -> int:
+        geom_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_GEOM, name
+        )
+        if geom_id < 0:
+            raise ValueError(f"Geom not found: {name}")
+        return geom_id
+
+    def _body_descends_from(self, body_id: int, ancestor_id: int) -> bool:
+        while body_id > 0:
+            if body_id == ancestor_id:
+                return True
+            body_id = int(self.model.body_parentid[body_id])
+        return False
+
+    def _body_velocity(self, body_id: int) -> tuple[np.ndarray, np.ndarray]:
+        velocity = np.zeros(6, dtype=np.float64)
+        mujoco.mj_objectVelocity(
+            self.model,
+            self.data,
+            mujoco.mjtObj.mjOBJ_BODY,
+            body_id,
+            velocity,
+            0,
+        )
+        return velocity[3:].copy(), velocity[:3].copy()
+
+    def _contact_state(
+        self,
+    ) -> tuple[
+        int,
+        tuple[int, ...],
+        tuple[int, ...],
+        tuple[int, ...],
+        bool,
+    ]:
+        supporting_feet: set[int] = set()
+        contact_object_ids: set[int] = set()
+        end_effector_contact_object_ids: set[int] = set()
+        body_contact_object_ids: set[int] = set()
+        illegal_collision = False
+        for contact in self.data.contact[: self.data.ncon]:
+            geom1 = int(contact.geom1)
+            geom2 = int(contact.geom2)
+            pair = frozenset((geom1, geom2))
+            if self.floor_geom_id in pair:
+                other = geom2 if geom1 == self.floor_geom_id else geom1
+                if other in self.foot_geom_ids:
+                    supporting_feet.add(other)
+                elif other in self.robot_geom_ids:
+                    illegal_collision = True
+            if self.box_geom_id in pair:
+                other = geom2 if geom1 == self.box_geom_id else geom1
+                if other in self.robot_geom_ids:
+                    contact_object_ids.add(10)
+                if other in self.end_effector_geom_ids:
+                    end_effector_contact_object_ids.add(10)
+                if (
+                    other in self.robot_geom_ids
+                    and other not in self.manipulator_geom_ids
+                ):
+                    body_contact_object_ids.add(10)
+            if pair & self.wall_geom_ids and pair & self.robot_geom_ids:
+                illegal_collision = True
+        return (
+            len(supporting_feet),
+            tuple(sorted(contact_object_ids)),
+            tuple(sorted(end_effector_contact_object_ids)),
+            tuple(sorted(body_contact_object_ids)),
+            illegal_collision,
+        )
 
     def reset(self, seed: int | None = None) -> OracleObservation:
         self.rng = np.random.default_rng(seed)
@@ -140,15 +247,42 @@ class BlockedPassageEnv:
         robot_qpos = self.data.qpos[
             self.robot_qpos_adr : self.robot_qpos_adr + 7
         ]
-        robot_yaw = 2.0 * np.arctan2(robot_qpos[6], robot_qpos[3])
+        robot_yaw = np.arctan2(
+            2.0 * (robot_qpos[3] * robot_qpos[6] + robot_qpos[4] * robot_qpos[5]),
+            1.0 - 2.0 * (robot_qpos[5] ** 2 + robot_qpos[6] ** 2),
+        )
+        robot_linear_velocity, robot_angular_velocity = self._body_velocity(
+            self.base_body_id
+        )
+        (
+            support_foot_count,
+            contact_object_ids,
+            end_effector_contact_object_ids,
+            body_contact_object_ids,
+            illegal_collision,
+        ) = self._contact_state()
+        finite_state = bool(
+            np.isfinite(robot_qpos).all()
+            and np.isfinite(robot_linear_velocity).all()
+            and np.isfinite(robot_angular_velocity).all()
+        )
+        state_valid = bool(finite_state and robot_qpos[2] >= 0.18)
         robot_state = np.zeros(12, dtype=np.float32)
         robot_state[:3] = robot_qpos[:3]
         robot_state[5] = robot_yaw
-        robot_state[10] = 4.0
-        robot_state[11] = 1.0
+        robot_state[6:9] = robot_linear_velocity
+        robot_state[9] = robot_angular_velocity[2]
+        robot_state[10] = support_foot_count
+        robot_state[11] = float(state_valid)
 
         box_qpos = self.data.qpos[self.box_qpos_adr : self.box_qpos_adr + 7]
-        box_yaw = 2.0 * np.arctan2(box_qpos[6], box_qpos[3])
+        box_yaw = np.arctan2(
+            2.0 * (box_qpos[3] * box_qpos[6] + box_qpos[4] * box_qpos[5]),
+            1.0 - 2.0 * (box_qpos[5] ** 2 + box_qpos[6] ** 2),
+        )
+        box_linear_velocity, box_angular_velocity = self._body_velocity(
+            self.box_body_id
+        )
         objects = (
             ObjectState(
                 1,
@@ -183,6 +317,8 @@ class BlockedPassageEnv:
                 movable=True,
                 supportable=True,
                 mass=5.0,
+                linear_velocity=box_linear_velocity.astype(np.float32),
+                angular_velocity=box_angular_velocity.astype(np.float32),
             ),
         )
         goal = np.array([1.80, 0.0, 0.0, 1.0], dtype=np.float32)
@@ -191,4 +327,9 @@ class BlockedPassageEnv:
             goal=goal,
             objects=objects,
             capability=self.capability,
+            state_valid=state_valid,
+            contact_object_ids=contact_object_ids,
+            end_effector_contact_object_ids=end_effector_contact_object_ids,
+            body_contact_object_ids=body_contact_object_ids,
+            illegal_collision=illegal_collision,
         )

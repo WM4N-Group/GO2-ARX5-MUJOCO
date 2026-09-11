@@ -42,8 +42,8 @@ def run_navigation(
     skill = NavigateSkill()
     skill.reset(nav_action)
 
-    print("STABILIZE: holding the nominal joint pose for 2 seconds")
-    for _ in range(round(2.0 / runtime.control_dt)):
+    print("STABILIZE: holding the nominal joint pose for 3 seconds")
+    for _ in range(round(3.0 / runtime.control_dt)):
         runtime.hold_default()
         if not sync(viewer, runtime.control_dt, realtime):
             return False
@@ -99,7 +99,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=20.0)
-    parser.add_argument("--action-clip", type=float, default=0.7)
+    parser.add_argument("--action-clip", type=float, default=20.0)
     parser.add_argument(
         "--policy",
         type=Path,

@@ -38,7 +38,7 @@
 
     <body name="movable_box" pos="0 0 0.3">
       <freejoint name="movable_box_joint"/>
-      <geom name="movable_box_geom" type="box" size="0.22 0.72 0.3" material="box_mat" mass="5" friction="0.8 0.02 0.002"/>
+      <geom name="movable_box_geom" type="box" size="0.22 0.72 0.3" material="box_mat" mass="5" contype="1" conaffinity="3" priority="1" friction="0.005 0.001 0.0001"/>
     </body>
 
     <body name="goal_marker" pos="1.80 0 0.012">

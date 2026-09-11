@@ -12,8 +12,9 @@
 - 通过移除单个可移动物体识别阻挡物。
 - Oracle 生成 `NAV -> PUSH -> NAV -> STOP` 技能序列。
 - 根据 `max_pushable_mass` 拒绝能力不足的方案。
-- 统一 Skill 生命周期和 NAV 目标位姿控制器。
+- 统一 NAV、PUSH、CLIMB Skill 生命周期。
 - 将世界坐标误差转换为策略使用的机体系 `vx/vy/yaw_rate`。
+- 支持 NAV actor 与独立 CLIMB actor 在同一 MuJoCo 状态中无 reset 切换。
 
 ## 运行自检
 
@@ -72,7 +73,85 @@ conda run -n leggedmanip python mujoco/visualize_policy_navigation.py \
   --headless --no-realtime
 ```
 
-当前默认部署策略可以产生明显步态和前进运动，但在原始平地环境和重构场景中都会很快失稳。本地 `go2_arx5_visual` 策略可以稳定站立，但只训练了约一万步，尚未学会速度跟踪。因此，真实 NAV 入口目前是控制链路诊断工具，还不能完成目标点导航。必须先修复训练配置并得到可用 locomotion checkpoint，才能继续实现物理 PUSH。
+批量运行随机场景回归，并按 NAV 成功率门槛返回退出码：
+
+```bash
+conda run -n leggedmanip python mujoco/evaluate_policy_navigation.py
+```
+
+当前默认部署策略与上游 `zzzJie-Robot/LeggedManip_Lab` 发布的 GO2-ARX5 `policy.pt` 逐字节一致。运行时保持上游 Sim-to-Sim 契约，包括 210 维三帧历史观测、Isaac/MuJoCo 关节映射、动作范围、PD 控制和启动稳定阶段。目标点 NAV 已在本地通过 100 个、远端通过 20 个随机场景回归，成功率均为 `100%`，满足设计方案中 `NAV >= 95%` 的验收线。
+
+## 真实动力学 Blocked Passage
+
+以下入口执行完整的真实动力学 `NAV -> PUSH -> NAV -> STOP`。机器人和箱体位姿不由演示器直接修改；GO2-ARX5 策略通过 PD 力矩和 `mujoco.mj_step()` 产生运动，PUSH 必须先检测到 ARX5 指尖接触才进入推动阶段：
+
+```bash
+conda run -n leggedmanip python mujoco/visualize_policy_reconfigurable_navigation.py
+```
+
+无 Viewer 快速运行：
+
+```bash
+conda run -n leggedmanip python \
+  mujoco/visualize_policy_reconfigurable_navigation.py \
+  --headless --no-realtime
+```
+
+批量回归：
+
+```bash
+conda run -n leggedmanip python mujoco/check_push_skill.py --seeds 20
+```
+
+当前固定 MVP 分布在本地通过 `20/20`、远端通过 `5/5` 完整任务回归。每个成功 episode 都包含指尖接触、物理箱体位移、重构后路径可达和最终 NAV 到达，且没有机身接触或非法碰撞。机械臂与箱体的最大接触穿透为 `3.9-7.0 mm`，低于 `10 mm` 验收上限。PUSH 状态机依次执行 `ALIGN -> CONTACT -> PUSH -> VERIFY -> RETREAT`。统一 executor 每次只执行最新计划的首个技能；典型 episode 产生 4 次重规划：`NAV -> PUSH -> NAV -> STOP`。
+
+## CLIMB 与无 reset 技能切换
+
+独立 CLIMB Viewer：
+
+```bash
+/home/yuanyue/re-nav/.tools/micromamba run \
+  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
+  python mujoco/visualize_climb_policy.py \
+  --policy mujoco/deploy/policy/go2_arx5/climb/policy_iter1499.pt \
+  --duration 20
+```
+
+通过真实 executor 检查 `NAV -> CLIMB -> NAV`：
+
+```bash
+/home/yuanyue/re-nav/.tools/micromamba run \
+  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
+  python mujoco/check_climb_skill_switching.py --seeds 10
+```
+
+当前回归为 `10/10`。每个 episode 只调用一次物理 reset；技能切换仅初始化 actor 内部 history、last action 和 delayed target buffer。receding-horizon executor 可以追加连续同类 NAV 修正，但压缩后的阶段必须是 `NAV -> CLIMB -> NAV`，且每条技能记录都成功。
+
+## PUSH + CLIMB 复杂课程
+
+生产 `OraclePlanner` 现在可从 `PLATFORM` 的显式 entry/landing portal 生成 CLIMB，并能识别阻挡平台入口的可移动箱体。完整结构计划为：
+
+```text
+NAV -> PUSH -> NAV -> CLIMB -> NAV -> STOP
+```
+
+真实物理批量验收：
+
+```bash
+/home/yuanyue/re-nav/.tools/micromamba run \
+  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
+  python mujoco/check_complex_course.py --seeds 10
+```
+
+可视化同一执行路径：
+
+```bash
+/home/yuanyue/re-nav/.tools/micromamba run \
+  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
+  python mujoco/check_complex_course.py --seeds 1 --visualize
+```
+
+当前复杂课程通过 `10/10`。每个 episode 都有 6 次逐技能重规划、一次物理 reset、真实指尖推动、零机身接触、零非法碰撞，并最终在顶层平台到达目标。NAV 切换到 CLIMB 前有显式 `0.5 s` 默认姿态准备阶段，避免机械臂遗留姿态污染 CLIMB 启动状态。
 
 ## 模块
 
@@ -83,10 +162,23 @@ conda run -n leggedmanip python mujoco/visualize_policy_navigation.py \
 | `occupancy.py` | 占据栅格、障碍膨胀和 A* |
 | `oracle_planner.py` | 阻挡物识别与规则式技能规划 |
 | `locomotion_runtime.py` | 210 维观测、TorchScript 推理、PD 控制和 MuJoCo 动力学 |
+| `climb_runtime.py` | 253 维 CLIMB 观测、DelayedPD 语义和共享 MuJoCo 状态控制 |
+| `complex_course_env.py` | PUSH 后转入 90 度楼梯的复杂课程真值观测 |
 | `skills/base.py` | 统一技能生命周期和低层命令类型 |
 | `skills/navigate.py` | NAV 目标跟踪和速度命令生成 |
+| `skills/push.py` | 带接触、进度、安全间距和退出检测的机械臂 PUSH 状态机 |
+| `skills/climb.py` | CLIMB 进入条件、平台位置/高度完成条件和超时控制 |
+| `runtime/safety.py` | 观察有效性、非法碰撞和执行预算检查 |
+| `runtime/replanner.py` | 将每次最新 Oracle 计划归约为一个下一动作 |
+| `runtime/executor.py` | 逐技能执行、重新观测、失败重试和终态控制 |
+| `evaluate_policy_navigation.py` | 多随机场景 NAV 成功率回归 |
+| `check_push_skill.py` | 真实 NAV-PUSH-NAV 完整任务回归 |
+| `check_climb_skill_switching.py` | 同一物理状态中的 NAV-CLIMB-NAV 切换回归 |
+| `check_complex_course.py` | 生产 planner 驱动的 PUSH+CLIMB 完整物理回归与 Viewer |
+| `visualize_policy_reconfigurable_navigation.py` | 真实物理 Blocked Passage 可视化 |
 | `blocked_passage.xml` | Blocked Passage 场景 |
+| `complex_course.xml` | 狭窄通道 PUSH 和旋转楼梯 CLIMB 组合场景 |
 
 ## 当前边界
 
-`set_box_pose()` 只用于验证反事实重构结果，尚未模拟真实 PUSH 技能。NAV 控制器和真实动力学运行时已经接入，但现有 checkpoint 不满足稳定速度跟踪要求。下一阶段必须先修复 locomotion 训练，再实现箱体接近、接触、推动和退出状态机。
+运动学 Oracle 动画仍使用 `set_box_pose()` 展示反事实，但真实物理入口和回归不调用它。当前 PUSH 使用 ARX5 各 link 的 mesh convex hull 防止穿模，并将任何机身或腿部接触箱体视为失败。5 kg 箱体被明确建模为高优先级、摩擦系数 `0.005` 的脚轮箱；它不代表当前策略能用机械臂推动普通高摩擦 5 kg 箱体。PLATFORM 当前依赖场景提供显式 entry/landing portal，尚未从任意网格自动提取；DelayedPD 仍采用已验证的固定 delay profile。当前可执行技能是 NAV、PUSH、CLIMB；JUMP 只有枚举和设计文档占位，尚无 actor、runtime 或 `JumpSkill`。恢复站立、接触重建和更宽参数随机化仍属于后续工作。

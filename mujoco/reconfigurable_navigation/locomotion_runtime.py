@@ -55,7 +55,7 @@ class LocomotionRuntime:
         self,
         env: BlockedPassageEnv,
         policy_path: Path | str = POLICY_PATH,
-        action_clip: float = 1.0,
+        action_clip: float = 20.0,
     ) -> None:
         if action_clip <= 0.0:
             raise ValueError("action_clip must be positive")
@@ -85,13 +85,16 @@ class LocomotionRuntime:
             raise ValueError(f"Expected 18 actuators, got {self.model.nu}")
 
         self.base_id = self._body_id("base")
+        self.robot_dof_adr = int(
+            self.model.jnt_dofadr[self.env.robot_joint_id]
+        )
         self.policy = torch.jit.load(str(policy_path), map_location="cpu")
         self.policy.eval()
         self.history: deque[np.ndarray] = deque(maxlen=3)
         self.last_action = np.zeros(18, dtype=np.float64)
         self.velocity_command = np.zeros(3, dtype=np.float64)
         self.ee_command = np.array(
-            [0.425, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0], dtype=np.float64
+            [0.5, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0], dtype=np.float64
         )
         self.reset()
 
@@ -119,16 +122,8 @@ class LocomotionRuntime:
         self.history.extend(frame.copy() for _ in range(3))
 
     def _base_angular_velocity(self) -> np.ndarray:
-        velocity = np.zeros(6, dtype=np.float64)
-        mujoco.mj_objectVelocity(
-            self.model,
-            self.data,
-            mujoco.mjtObj.mjOBJ_BODY,
-            self.base_id,
-            velocity,
-            1,
-        )
-        return velocity[:3].copy()
+        start = self.robot_dof_adr + 3
+        return self.data.qvel[start : start + 3].copy()
 
     def _single_observation(self) -> np.ndarray:
         joint_position = self.data.qpos[self.joint_qpos_adr] - self.default_qpos

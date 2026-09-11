@@ -1,0 +1,34 @@
+<mujoco model="go2_arx5 low stair climb">
+  <include file="../../robots/go2_arx5/go2_arx5.xml"/>
+  <compiler meshdir="../../robots/go2_arx5/assets"/>
+
+  <statistic center="2.4 0 0.25" extent="4.5"/>
+
+  <visual>
+    <headlight diffuse="0.7 0.7 0.7" ambient="0.35 0.35 0.35" specular="0 0 0"/>
+    <global azimuth="145" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.45 0.6" rgb2="0.02 0.02 0.03" width="512" height="3072"/>
+    <texture type="2d" name="climb_ground" builtin="checker" mark="edge" rgb1="0.22 0.25 0.28" rgb2="0.14 0.16 0.18" markrgb="0.7 0.7 0.7" width="300" height="300"/>
+    <material name="climb_ground" texture="climb_ground" texuniform="true" texrepeat="8 8" reflectance="0.05"/>
+    <material name="step_low" rgba="0.25 0.55 0.72 1"/>
+    <material name="step_high" rgba="0.12 0.70 0.50 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="2 0 5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" type="plane" size="0 0 0.05" material="climb_ground" friction="1.0 0.02 0.002"/>
+
+    <geom name="step_01" type="box" pos="1.675 0 0.010" size="0.175 2.0 0.010" material="step_low" friction="1.0 0.02 0.002"/>
+    <geom name="step_02" type="box" pos="2.025 0 0.020" size="0.175 2.0 0.020" material="step_low" friction="1.0 0.02 0.002"/>
+    <geom name="step_03" type="box" pos="2.375 0 0.030" size="0.175 2.0 0.030" material="step_low" friction="1.0 0.02 0.002"/>
+    <geom name="step_04" type="box" pos="2.725 0 0.040" size="0.175 2.0 0.040" material="step_low" friction="1.0 0.02 0.002"/>
+    <geom name="step_05" type="box" pos="3.075 0 0.050" size="0.175 2.0 0.050" material="step_high" friction="1.0 0.02 0.002"/>
+    <geom name="step_06" type="box" pos="3.425 0 0.060" size="0.175 2.0 0.060" material="step_high" friction="1.0 0.02 0.002"/>
+    <geom name="step_07" type="box" pos="3.775 0 0.070" size="0.175 2.0 0.070" material="step_high" friction="1.0 0.02 0.002"/>
+    <geom name="step_08" type="box" pos="4.125 0 0.080" size="0.175 2.0 0.080" material="step_high" friction="1.0 0.02 0.002"/>
+    <geom name="top_platform" type="box" pos="5.500 0 0.080" size="1.200 2.0 0.080" material="step_high" friction="1.0 0.02 0.002"/>
+  </worldbody>
+</mujoco>

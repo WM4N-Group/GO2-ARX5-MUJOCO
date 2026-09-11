@@ -63,6 +63,18 @@ class ObjectState:
     supportable: bool = False
     mass: float = 0.0
     confidence: float = 1.0
+    linear_velocity: np.ndarray = field(
+        default_factory=lambda: np.zeros(3, dtype=np.float32)
+    )
+    angular_velocity: np.ndarray = field(
+        default_factory=lambda: np.zeros(3, dtype=np.float32)
+    )
+    climb_entry_pose: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32)
+    )
+    climb_landing_pose: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32)
+    )
 
 
 @dataclass(frozen=True)
@@ -72,6 +84,10 @@ class OracleObservation:
     objects: tuple[ObjectState, ...]
     capability: Capability
     state_valid: bool = True
+    contact_object_ids: tuple[int, ...] = ()
+    end_effector_contact_object_ids: tuple[int, ...] = ()
+    body_contact_object_ids: tuple[int, ...] = ()
+    illegal_collision: bool = False
 
 
 @dataclass(frozen=True)
