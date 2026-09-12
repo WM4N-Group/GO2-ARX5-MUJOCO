@@ -19,6 +19,17 @@ class SkillCandidate:
     action: SkillAction
 
 
+def candidate_scene_metadata(record: dict) -> dict:
+    metadata = record["metadata"]
+    family = metadata.get("scene_family")
+    if family is None and metadata.get("scenario") == "complex_course":
+        family = "complex_course_fixed_layout"
+    if not isinstance(family, str) or not family:
+        raise ValueError("Source record must identify its scene family")
+    fields = ("scene_id", "scene_parameters", "sweep_case", "sweep_group_id", "capability_profile_id", "capability")
+    return {"scene_family": family, **{name: deepcopy(metadata[name]) for name in fields if name in metadata}}
+
+
 def build_candidates(action: SkillAction, *, count: int, seed: int) -> tuple[SkillCandidate, ...]:
     if count < 3:
         raise ValueError("At least three candidates are required")

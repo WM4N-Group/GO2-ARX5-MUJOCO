@@ -17,7 +17,7 @@ from zipfile import ZipFile
 import numpy as np
 import torch
 
-from reconfigurable_navigation.data.candidates import build_candidates, candidate_payload
+from reconfigurable_navigation.data.candidates import build_candidates, candidate_payload, candidate_scene_metadata
 from reconfigurable_navigation.data.snapshot import SimulatorSnapshot
 from reconfigurable_navigation.representations import SkillAction, SkillType
 
@@ -50,7 +50,7 @@ def collect_snapshot(job: dict) -> list[dict]:
             source_record_index=job["record_index"],
             episode_id=source_record["metadata"]["episode_id"],
             scene_seed=source_record["metadata"]["seed"],
-            scene_family="complex_course_fixed_layout",
+            **candidate_scene_metadata(source_record),
             candidate_index=candidate_index,
             candidate_seed=candidate_seed,
             max_control_steps=job["max_control_steps"],
@@ -91,6 +91,7 @@ def main() -> None:
         record = records[index]
         if record["schema_version"] not in (1, 2) or "snapshot_file" not in record["metadata"]:
             parser.error("Every selected record must reference a compatible snapshot")
+        candidate_scene_metadata(record)
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
     source_sha256 = hashlib.sha256(raw_source).hexdigest()
@@ -105,9 +106,9 @@ def main() -> None:
         "max_control_steps": args.max_control_steps,
         "workers": args.workers,
         "torch_threads_per_worker": 1,
-        "scene_families": ["complex_course_fixed_layout"],
+        "scene_families": sorted({candidate_scene_metadata(records[index])["scene_family"] for index in indices}),
         "split": "pilot_unsplit",
-        "limitations": ["local parameter perturbations, not grounded plans", "no reachability or support-stability labels", "single scene family, not held-out evaluation", "events sampled at control boundaries; substep contacts may be missed"],
+        "limitations": ["local parameter perturbations, not grounded plans", "no reachability or support-stability labels", "no held-out split; group related layouts and counterfactuals before training", "events sampled at control boundaries; substep contacts may be missed"],
     }
     repository = Path(__file__).resolve().parents[1]
     manifest["git_commit"] = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()

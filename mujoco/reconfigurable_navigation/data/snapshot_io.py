@@ -27,6 +27,7 @@ def _registry() -> dict[str, type]:
     from ..locomotion_runtime import LocomotionRuntime
     from ..occupancy import GridConfig, OccupancyGrid
     from ..oracle_planner import OraclePlanner, PlannerConfig
+    from ..passage_scene import ParameterizedPassageEnv, PassageScene
     from ..representations import Capability, SkillType
     from ..runtime.executor import ReconfigurableExecutor
     from ..runtime.replanner import OracleReplanner
@@ -36,6 +37,7 @@ def _registry() -> dict[str, type]:
         BlockedPassageEnv, ComplexCourseEnv, LocomotionRuntime, ClimbRuntime,
         GridConfig, OccupancyGrid, OraclePlanner, PlannerConfig, Capability,
         SkillType, ReconfigurableExecutor, OracleReplanner, SafetyConfig, SafetyMonitor,
+        ParameterizedPassageEnv, PassageScene,
     )
     return {kind.__name__: kind for kind in classes}
 
@@ -59,7 +61,7 @@ def _code_fingerprint() -> str:
         "representations.py", "occupancy.py", "oracle_planner.py", "runtime/executor.py",
         "runtime/replanner.py", "runtime/safety.py", "skills/base.py", "skills/navigate.py",
         "skills/push.py", "skills/climb.py", "data/transition.py", "data/snapshot.py",
-        "data/snapshot_io.py", "data/events.py",
+        "data/snapshot_io.py", "data/events.py", "passage_scene.py",
     )
     digest = hashlib.sha256()
     for relative in files:

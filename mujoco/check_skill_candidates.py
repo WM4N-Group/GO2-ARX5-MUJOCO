@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from reconfigurable_navigation.data.candidates import SkillCandidate, build_candidates, candidate_payload
+from reconfigurable_navigation.data.candidates import SkillCandidate, build_candidates, candidate_payload, candidate_scene_metadata
 from reconfigurable_navigation.data.events import SkillEvent
 from reconfigurable_navigation.data.snapshot import SkillReplay
 from reconfigurable_navigation.data.transition import SkillTransition
@@ -100,6 +100,19 @@ class CandidateChecks(unittest.TestCase):
         self.assertEqual(payload["failure_reason"], "contact_timeout")
         self.assertTrue(payload["label_validity"]["failure_reason"])
         self.assertFalse(payload["label_validity"]["end_effector_contact"])
+
+    def test_scene_metadata_preserves_parameters_and_legacy_family(self) -> None:
+        source = {"metadata": {
+            "scene_family": "blocked_passage", "scene_id": "scene-1", "sweep_group_id": "layout-1",
+            "scene_parameters": {"box_mass": 10.0}, "capability_profile_id": "baseline",
+        }}
+        copied = candidate_scene_metadata(source)
+        self.assertEqual(copied, source["metadata"])
+        copied["scene_parameters"]["box_mass"] = 1.0
+        self.assertEqual(source["metadata"]["scene_parameters"]["box_mass"], 10.0)
+        self.assertEqual(candidate_scene_metadata({"metadata": {"scenario": "complex_course"}}), {"scene_family": "complex_course_fixed_layout"})
+        with self.assertRaises(ValueError):
+            candidate_scene_metadata({"metadata": {"scenario": "unknown"}})
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ class BlockedPassageEnv:
         xml_path: Path | str = XML_PATH,
     ) -> None:
         self.capability = capability or Capability()
-        self.model = mujoco.MjModel.from_xml_path(str(xml_path))
+        self.model = self._load_model(xml_path)
         self.data = mujoco.MjData(self.model)
         with DEPLOY_CONFIG_PATH.open(encoding="utf-8") as config_file:
             self.deploy_cfg = yaml.safe_load(config_file)
@@ -73,6 +73,9 @@ class BlockedPassageEnv:
         self.box_qpos_adr = int(self.model.jnt_qposadr[self.box_joint_id])
         self.box_dof_adr = int(self.model.jnt_dofadr[self.box_joint_id])
         self.rng = np.random.default_rng()
+
+    def _load_model(self, xml_path: Path | str) -> mujoco.MjModel:
+        return mujoco.MjModel.from_xml_path(str(xml_path))
 
     def _joint_id(self, name: str) -> int:
         joint_id = mujoco.mj_name2id(
@@ -233,7 +236,9 @@ class BlockedPassageEnv:
     def set_box_pose(self, x: float, y: float, yaw: float = 0.0) -> None:
         """Set an oracle counterfactual box pose without simulating a push."""
         self._set_free_joint(
-            self.box_qpos_adr, np.array([x, y, 0.30]), yaw
+            self.box_qpos_adr,
+            np.array([x, y, self.model.geom_size[self.box_geom_id, 2]]),
+            yaw,
         )
         box_dof_adr = int(self.model.jnt_dofadr[self.box_joint_id])
         self.data.qvel[box_dof_adr : box_dof_adr + 6] = 0.0

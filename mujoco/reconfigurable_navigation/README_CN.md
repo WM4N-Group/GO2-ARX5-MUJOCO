@@ -181,6 +181,18 @@ python mujoco/collect_skill_candidates.py --record-jsonl logs/replay-source.json
 
 新机已验证 23 项合约测试和 50 个原动作的复现，并生成 600 个候选请求，其中 542 条实际执行、58 条前置拒绝。完整数据分布、版本/信任限制和命令见 [N1 快照与数据说明](../../docs/N1_REPLAY_DATA_CN.md)。这些是固定场景族的 pilot，不是已完成泛化评测或世界模型训练。
 
+## 参数化通道扫描
+
+`PassageScene` 支持箱体质量/摩擦/尺寸/位姿、通道宽度、机器人起点和目标参数；MuJoCo 模型与真值观测同步变化，并进入完整快照。参数化扫描使用原 Oracle/executor，实际失败和规则拒绝都作为数据保留。
+
+```bash
+python mujoco/check_passage_scenes.py -v
+python mujoco/evaluate_passage_scenes.py --output-dir logs/passage-sweep-new --seeds 1 --snapshots
+python mujoco/collect_skill_candidates.py --record-jsonl logs/passage-sweep-new/transitions.jsonl --output-dir logs/passage-candidates-new --candidates-per-snapshot 3 --workers 4 --trusted
+```
+
+每次使用新输出目录；候选继承 scene_family、scene_id、scene_parameters 和 sweep_group_id。服务器 40 项合约通过，十类单变量扫描 7/10 接受，84 个候选为 50 成功、6 失败、28 拒绝，详见 [N2 参数化通道](../../docs/N2_PASSAGE_SCENES_CN.md)。这是一个通道布局族的扫描，没有完成几何 grounding、能力标定或训练/测试划分。
+
 ## 模块
 
 | 文件 | 作用 |
@@ -192,6 +204,8 @@ python mujoco/collect_skill_candidates.py --record-jsonl logs/replay-source.json
 | `locomotion_runtime.py` | 210 维观测、TorchScript 推理、PD 控制和 MuJoCo 动力学 |
 | `climb_runtime.py` | 253 维 CLIMB 观测、DelayedPD 语义和共享 MuJoCo 状态控制 |
 | `complex_course_env.py` | PUSH 后转入 90 度楼梯的复杂课程真值观测 |
+| `passage_scene.py` | 参数化通道、单变量扫描及物理一致真值 |
+| `evaluate_passage_scenes.py` / `check_passage_scenes.py` | 参数扫描、场景合约、数据与快照入口 |
 | `skills/base.py` | 统一技能生命周期和低层命令类型 |
 | `skills/navigate.py` | NAV 目标跟踪和速度命令生成 |
 | `skills/push.py` | 带接触、进度、安全间距和退出检测的机械臂 PUSH 状态机 |
