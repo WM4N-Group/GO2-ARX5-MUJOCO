@@ -206,6 +206,8 @@ python mujoco/deploy/deploy_mujoco/go2_piper/go2_piper.py config.yaml
 - [双 RTX 4090 服务器依赖环境与迁移指南](docs/SERVER_MIGRATION_2X4090_CN.md)
 - [可重构导航后续开发规划](docs/RECONFIGURABLE_NAVIGATION_NEXT_PLAN_CN.md)
 - [会话压缩与跨服务器 Agent 交接](docs/AGENT_HANDOFF_CN.md)
+- [yuanyue 双卡服务器部署与开发记录](docs/YUANYUE_SERVER_STATUS_CN.md)
+- [N1 技能快照、物理重放与候选 Pilot](docs/N1_REPLAY_DATA_CN.md)
 
 
 ---

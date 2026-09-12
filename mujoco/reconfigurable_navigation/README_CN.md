@@ -153,6 +153,32 @@ NAV -> PUSH -> NAV -> CLIMB -> NAV -> STOP
 
 当前复杂课程通过 `10/10`。每个 episode 都有 6 次逐技能重规划、一次物理 reset、真实指尖推动、零机身接触、零非法碰撞，并最终在顶层平台到达目标。NAV 切换到 CLIMB 前有显式 `0.5 s` 默认姿态准备阶段，避免机械臂遗留姿态污染 CLIMB 启动状态。
 
+## 技能边界数据记录
+
+在已激活 MuJoCo 环境的仓库根目录中运行：
+
+```bash
+python mujoco/check_skill_transitions.py -v
+python mujoco/check_complex_course.py --seeds 10 --record-jsonl logs/n1-transitions.jsonl
+```
+
+`--record-jsonl` 是可选的单进程追加输出，不改变默认技能执行或任务成功条件。每条数据包含 schema_version、动作、前后观测拷贝、前序技能、技能状态、仿真时间和 episode/seed 元数据；总耗时包含 CLIMB 准备阶段。用户中断的 skill_success 为 null，非有限数值不会作为合法 JSON 写出。
+
+新服务器已通过 7 项合约测试及带记录复杂课程 `10/10`，生成 50 条记录，其中 48 条技能成功、2 条失败。整体到达目标不等于每个技能都成功，不能把任务结果覆盖为每条技能的正标签。
+
+单独的 JSONL 是技能边界观测记录，完整物理和控制器快照需要额外指定 `--snapshot-dir`。并行 worker 应写不同文件；异常中止后应检查末行完整性。详细新机结果见 [部署与开发记录](../../docs/YUANYUE_SERVER_STATUS_CN.md)。
+
+### 完整快照与物理候选
+
+```bash
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+python mujoco/check_complex_course.py --seeds 1 --record-jsonl logs/replay-source.jsonl --snapshot-dir logs/replay-snapshots
+python mujoco/replay_skill_records.py --record-jsonl logs/replay-source.jsonl --indices 0 1 2 3 4 --repeats 3 --trusted
+python mujoco/collect_skill_candidates.py --record-jsonl logs/replay-source.jsonl --output-dir logs/candidate-pilot --candidates-per-snapshot 12 --workers 4 --trusted
+```
+
+新机已验证 23 项合约测试和 50 个原动作的复现，并生成 600 个候选请求，其中 542 条实际执行、58 条前置拒绝。完整数据分布、版本/信任限制和命令见 [N1 快照与数据说明](../../docs/N1_REPLAY_DATA_CN.md)。这些是固定场景族的 pilot，不是已完成泛化评测或世界模型训练。
+
 ## 模块
 
 | 文件 | 作用 |
@@ -171,6 +197,11 @@ NAV -> PUSH -> NAV -> CLIMB -> NAV -> STOP
 | `runtime/safety.py` | 观察有效性、非法碰撞和执行预算检查 |
 | `runtime/replanner.py` | 将每次最新 Oracle 计划归约为一个下一动作 |
 | `runtime/executor.py` | 逐技能执行、重新观测、失败重试和终态控制 |
+| `data/transition.py` | 可序列化技能边界观测、时间和中断语义 |
+| `data/snapshot.py` / `data/snapshot_io.py` | 独立物理快照、原生缓存归档与技能级回放 |
+| `data/candidates.py` | 采集用参数扰动与拒绝/截断标签 |
+| `replay_skill_records.py` / `collect_skill_candidates.py` | 归档重放与批量物理候选采集入口 |
+| `check_skill_transitions.py` | 记录拷贝、标签、准备时长和默认行为合约检查 |
 | `evaluate_policy_navigation.py` | 多随机场景 NAV 成功率回归 |
 | `check_push_skill.py` | 真实 NAV-PUSH-NAV 完整任务回归 |
 | `check_climb_skill_switching.py` | 同一物理状态中的 NAV-CLIMB-NAV 切换回归 |

@@ -2,6 +2,8 @@
 
 更新日期：2026-09-11。代码基线：`629e666`，分支：`feature/reconfigurable-navigation-oracle`。
 
+部署更新：yuanyue 新服务器已完成 MuJoCo 回归和两张 GPU 的独立 Isaac/PPO 冒烟，实际路径、修复与剩余边界见 [新机部署记录](YUANYUE_SERVER_STATUS_CN.md)。本文保留通用重建步骤，双卡并发和 DDP 仍需单独验收。
+
 本文用于把当前可重构导航项目迁移到一台配有两块 RTX 4090 的 Linux 服务器。目标是先复现 MuJoCo 推理与技能组合，再恢复 Isaac Lab 训练环境；迁移本身不要求重新训练策略。
 
 ## 1. 依赖边界
@@ -120,7 +122,7 @@ sudo apt-get update
 sudo apt-get install -y \
 	git git-lfs curl ca-certificates bzip2 unzip rsync tmux \
 	build-essential pkg-config ffmpeg \
-	libgl1 libegl1 libglfw3 libglib2.0-0 libvulkan1 vulkan-tools \
+	libgl1 libegl1 libglu1-mesa libglfw3 libglib2.0-0 libvulkan1 vulkan-tools \
 	libx11-6 libxext6 libxi6 libxrandr2 libxinerama1 libxcursor1 \
 	libsm6 libice6 libnss3 libasound2
 ```
@@ -129,7 +131,7 @@ sudo apt-get install -y \
 
 ## 4. 目录、源码与 Git LFS
 
-以下命令均是供新服务器执行的迁移步骤，本文没有在新服务器上执行安装。`/data/go2` 是示例路径，应先换成新服务器上有写权限的持久化目录。所有新终端和 tmux 会话都需要设置同样的变量。
+以下命令是通用迁移步骤，yuanyue 新机实际使用 `/mnt/yuanyue`；具体安装与验收记录见本文开头链接。`/data/go2` 是示例路径，应先换成目标服务器上有写权限的持久化目录。所有新终端和 tmux 会话都需要设置同样的变量。
 
 ```bash
 export GO2_ROOT=/data/go2
@@ -311,20 +313,22 @@ chmod +x "$GO2_ROOT/bin/isaac-python"
 先确认两块卡均对 CUDA 可见，再逐卡做小规模测试。以下命令会产生新的迁移冒烟日志，不是启动正式 CLIMB 重训。
 
 ```bash
-isaac-python -c 'import torch; print(torch.__version__, torch.version.cuda); print("GPU count:", torch.cuda.device_count()); print([torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]); assert torch.cuda.is_available()'
+env -u CUDA_VISIBLE_DEVICES isaac-python -c 'import torch; print(torch.__version__, torch.version.cuda); print("GPU count:", torch.cuda.device_count()); print([torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]); assert torch.cuda.is_available()'
 cd "$PROJECT_DIR"
-isaac-python scripts/list_envs.py
-CUDA_VISIBLE_DEVICES=0 isaac-python scripts/rsl_rl/train.py \
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/list_envs.py
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/rsl_rl/train.py \
 	--task GO2-ARX5-Climb --device cuda:0 --num_envs 16 \
 	--max_iterations 1 --headless --logger tensorboard \
-	--experiment_name go2_migration_smoke --run_name gpu0
-CUDA_VISIBLE_DEVICES=1 isaac-python scripts/rsl_rl/train.py \
-	--task GO2-ARX5-Climb --device cuda:0 --num_envs 16 \
+	--experiment_name go2_migration_smoke --run_name gpu0 \
+	--kit_args="--/renderer/activeGpu=0 --/renderer/multiGpu/enabled=false" agent.device=cuda:0
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/rsl_rl/train.py \
+	--task GO2-ARX5-Climb --device cuda:1 --num_envs 16 \
 	--max_iterations 1 --headless --logger tensorboard \
-	--experiment_name go2_migration_smoke --run_name gpu1
+	--experiment_name go2_migration_smoke --run_name gpu1 \
+	--kit_args="--/renderer/activeGpu=1 --/renderer/multiGpu/enabled=false" agent.device=cuda:1
 ```
 
-当 `CUDA_VISIBLE_DEVICES=1` 时，进程内 `cuda:0` 映射到物理 GPU 1，不要同时写成 `--device cuda:1`。任务列表应包含 `GO2-ARX5-Flat{,-Play}`、`GO2-ARX5-WBC{,-Play}`、`GO2-ARX5-Climb{,-Play}`。任务注册成功仍不等于资产加载和训练成功；每次冒烟应实际完成一次迭代并生成 `model_0.pt`。
+新双卡容器实测中，单卡 `CUDA_VISIBLE_DEVICES` 掩码引起 CUDA 与 Omniverse/Vulkan 枚举不一致。上述修订命令保持设备可见，分别指定仿真、策略和渲染编号；非分布式训练时仅设置 `--device` 不会自动修改 `agent_cfg.device`。任务列表应包含 `GO2-ARX5-Flat{,-Play}`、`GO2-ARX5-WBC{,-Play}`、`GO2-ARX5-Climb{,-Play}`。每次冒烟应实际完成一次迭代并生成 `model_0.pt`，不能只验证任务注册。
 
 ## 7. 双 RTX 4090 的使用方式
 
@@ -338,20 +342,22 @@ CUDA_VISIBLE_DEVICES=1 isaac-python scripts/rsl_rl/train.py \
 
 ```bash
 cd "$PROJECT_DIR"
-CUDA_VISIBLE_DEVICES=0 isaac-python scripts/rsl_rl/train.py \
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/rsl_rl/train.py \
 	--task GO2-ARX5-Climb --device cuda:0 --num_envs 4096 \
 	--seed 0 --max_iterations 1500 --headless --logger tensorboard \
-	--run_name dual_host_gpu0_seed0
+	--run_name dual_host_gpu0_seed0 \
+	--kit_args="--/renderer/activeGpu=0 --/renderer/multiGpu/enabled=false" agent.device=cuda:0
 ```
 
 另一个 tmux 会话：
 
 ```bash
 cd "$PROJECT_DIR"
-CUDA_VISIBLE_DEVICES=1 isaac-python scripts/rsl_rl/train.py \
-	--task GO2-ARX5-Climb --device cuda:0 --num_envs 4096 \
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/rsl_rl/train.py \
+	--task GO2-ARX5-Climb --device cuda:1 --num_envs 4096 \
 	--seed 1 --max_iterations 1500 --headless --logger tensorboard \
-	--run_name dual_host_gpu1_seed1
+	--run_name dual_host_gpu1_seed1 \
+	--kit_args="--/renderer/activeGpu=1 --/renderer/multiGpu/enabled=false" agent.device=cuda:1
 ```
 
 单卡 4096 环境已有历史记录，但双任务同时运行的 CPU、RAM 和散热需求仍需测量。先以 16/256 环境试运行，再放大到 4096。使用 `nvidia-smi` 核对进程和显存；涉及相机/Vulkan 渲染时，还应检查 Kit 的渲染设备选择，不能只凭 CUDA 掩码断言全部渲染负载都已隔离。
@@ -364,7 +370,7 @@ CUDA_VISIBLE_DEVICES=1 isaac-python scripts/rsl_rl/train.py \
 
 ```bash
 cd "$PROJECT_DIR"
-CUDA_VISIBLE_DEVICES=0,1 isaac-python -m torch.distributed.run \
+env -u CUDA_VISIBLE_DEVICES isaac-python -m torch.distributed.run \
 	--standalone --nnodes=1 --nproc_per_node=2 \
 	scripts/rsl_rl/train.py --distributed \
 	--task GO2-ARX5-Climb --num_envs 16 --max_iterations 1 \
@@ -415,10 +421,11 @@ rsync -avh --progress \
 
 ```bash
 cd "$PROJECT_DIR"
-CUDA_VISIBLE_DEVICES=0 isaac-python scripts/rsl_rl/play.py \
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/rsl_rl/play.py \
 	--task GO2-ARX5-Climb-Play --device cuda:0 --num_envs 16 \
 	--checkpoint "$PROJECT_DIR/logs/rsl_rl/go2_arx5_climb/2026-09-10_15-03-49/model_1499.pt" \
-	--headless --video --video_length 1000
+	--headless --video --video_length 1000 \
+	--kit_args="--/renderer/activeGpu=0 --/renderer/multiGpu/enabled=false" agent.device=cuda:0
 ```
 
 当前 `play.py` 会自动导出 JIT 和 ONNX，并在录完上述 1000 步后退出；不带 `--video` 的 headless play 通常持续运行，需要主动停止。录像需要相机渲染及编码依赖，不能等同于纯物理无头训练。
@@ -426,11 +433,12 @@ CUDA_VISIBLE_DEVICES=0 isaac-python scripts/rsl_rl/play.py \
 确认需要继续优化已有策略时，续训示例：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 isaac-python scripts/rsl_rl/train.py \
+env -u CUDA_VISIBLE_DEVICES isaac-python scripts/rsl_rl/train.py \
 	--task GO2-ARX5-Climb --device cuda:0 --num_envs 4096 \
 	--resume --load_run 2026-09-10_15-03-49 --checkpoint model_1499.pt \
 	--max_iterations 100 --headless --logger tensorboard \
-	--run_name resumed_on_new_server
+	--run_name resumed_on_new_server \
+	--kit_args="--/renderer/activeGpu=0 --/renderer/multiGpu/enabled=false" agent.device=cuda:0
 ```
 
 这里训练入口按 `logs/rsl_rl/go2_arx5_climb/<load_run>/<checkpoint>` 查找文件，而 play 的 `--checkpoint` 支持直接给路径。`--max_iterations` 直接传给 runner 的 `num_learning_iterations`；恢复时不要把它误认为全局停止迭代号，先用 `1` 做恢复测试并检查打印出的迭代区间。旧 run 的 YAML 不会替代当前代码中的任务配置，续训前需要比对它们。
@@ -465,7 +473,7 @@ CUDA_VISIBLE_DEVICES=0 isaac-python scripts/rsl_rl/train.py \
 - [ ] 若启用 DDP，双卡冒烟与实际加速收益已单独验证。
 - [ ] 长任务放入 tmux；TensorBoard 仅绑定回环地址并通过 SSH 转发访问。
 
-本文已核对本地包元数据、旧单卡服务器 commit/包元数据及 `pip check`、当前训练脚本参数、策略 SHA-256 和官方安装要求。新服务器安装、双卡并行和 DDP 仍待在目标硬件上执行，本文不是新服务器已经通过验收的报告。
+本文已核对本地和旧服务器版本、脚本参数、策略 SHA-256 与官方要求；yuanyue 新机的安装、MuJoCo 回归和两次独立单卡 Isaac 冒烟已有实际记录。双卡并发、DDP 及原始 checkpoint 原生录像评估仍待单独验证，不能由单卡冒烟推断。
 
 参考：
 

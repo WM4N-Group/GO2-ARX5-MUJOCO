@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
+from pathlib import Path
 import time
+import uuid
 
 import mujoco
 import mujoco.viewer
@@ -11,6 +15,8 @@ import numpy as np
 
 from reconfigurable_navigation.climb_runtime import ClimbRuntime
 from reconfigurable_navigation.complex_course_env import ComplexCourseEnv
+from reconfigurable_navigation.data import SkillTransition
+from reconfigurable_navigation.data.snapshot import SimulatorSnapshot
 from reconfigurable_navigation.locomotion_runtime import LocomotionRuntime
 from reconfigurable_navigation.occupancy import GridConfig
 from reconfigurable_navigation.oracle_planner import OraclePlanner
@@ -26,7 +32,15 @@ from reconfigurable_navigation.runtime import (
 from reconfigurable_navigation.skills import Skill
 
 
-def run_episode(seed: int, visualize: bool = False, realtime: bool = False) -> bool:
+def run_episode(
+    seed: int,
+    visualize: bool = False,
+    realtime: bool = False,
+    record_jsonl: Path | None = None,
+    snapshot_dir: Path | None = None,
+) -> bool:
+    if snapshot_dir is not None and record_jsonl is None:
+        raise ValueError("snapshot_dir requires record_jsonl")
     env = ComplexCourseEnv()
     env.reset(seed=seed)
     locomotion_runtime = LocomotionRuntime(env)
@@ -47,6 +61,11 @@ def run_episode(seed: int, visualize: bool = False, realtime: bool = False) -> b
     )
     fingertip_contact = False
     body_contact = False
+    episode_id = uuid.uuid4().hex if record_jsonl is not None else None
+    transition_index = 0
+    snapshot_metadata = {}
+    if record_jsonl is not None:
+        record_jsonl.parent.mkdir(parents=True, exist_ok=True)
     viewer = None
     if visualize:
         viewer = mujoco.viewer.launch_passive(env.model, env.data)
@@ -77,7 +96,39 @@ def run_episode(seed: int, visualize: bool = False, realtime: bool = False) -> b
             time.sleep(locomotion_runtime.control_dt)
         return True
 
-    result = executor.run(on_step=on_step, on_event=print if visualize else None)
+    def on_skill_start(_action: SkillAction, previous_skill: SkillType | None) -> None:
+        assert snapshot_dir is not None and record_jsonl is not None
+        snapshot_path = snapshot_dir / f"{episode_id}-{transition_index}.snapshot"
+        snapshot = SimulatorSnapshot.capture(executor, previous_skill)
+        snapshot.save(snapshot_path)
+        snapshot_metadata.clear()
+        snapshot_metadata.update(
+            snapshot_file=os.path.relpath(snapshot_path.resolve(), record_jsonl.parent.resolve()),
+            snapshot_sha256=hashlib.sha256(snapshot_path.read_bytes()).hexdigest(),
+        )
+
+    def on_transition(transition: SkillTransition) -> None:
+        nonlocal transition_index
+        assert record_jsonl is not None
+        line = transition.to_json(
+            {
+                "episode_id": episode_id,
+                "scenario": "complex_course",
+                "seed": seed,
+                "skill_index": transition_index,
+                **snapshot_metadata,
+            }
+        )
+        with record_jsonl.open("a", encoding="utf-8") as output:
+            output.write(line + "\n")
+        transition_index += 1
+
+    result = executor.run(
+        on_step=on_step,
+        on_event=print if visualize else None,
+        on_transition=on_transition if record_jsonl is not None else None,
+        on_skill_start=on_skill_start if snapshot_dir is not None else None,
+    )
     observation = env.observe()
     skills = tuple(record.action.skill for record in result.records)
     phases = tuple(
@@ -124,16 +175,29 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=1)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--no-realtime", action="store_true")
+    parser.add_argument(
+        "--record-jsonl",
+        type=Path,
+        help="Append skill-boundary observations to a JSONL file.",
+    )
+    parser.add_argument(
+        "--snapshot-dir", type=Path,
+        help="Save trusted, version-specific skill-start snapshots referenced by JSONL.",
+    )
     args = parser.parse_args()
     if args.seeds < 1:
         parser.error("--seeds must be positive")
     if args.visualize and args.seeds != 1:
         parser.error("--visualize requires --seeds 1")
+    if args.snapshot_dir is not None and args.record_jsonl is None:
+        parser.error("--snapshot-dir requires --record-jsonl")
     successes = sum(
         run_episode(
             seed,
             visualize=args.visualize,
             realtime=args.visualize and not args.no_realtime,
+            record_jsonl=args.record_jsonl,
+            snapshot_dir=args.snapshot_dir,
         )
         for seed in range(args.seeds)
     )

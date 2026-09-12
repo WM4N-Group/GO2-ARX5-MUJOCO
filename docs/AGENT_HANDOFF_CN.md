@@ -2,6 +2,8 @@
 
 整理日期：2026-09-11。项目：GO2-ARX5-MUJOCO，可重构导航分支。
 
+部署与开发更新：yuanyue 新机已完成 MuJoCo 与逐卡 Isaac 验收；N1 已完成技能边界记录、完整起点快照、跨进程重放和 600 请求/542 条执行记录的 pilot。最新开发边界见 [N1 快照与数据记录](N1_REPLAY_DATA_CN.md)，环境路径和已知冲突见 [新服务器记录](YUANYUE_SERVER_STATUS_CN.md)，不要将下文的早期生成时状态视为当前状态。
+
 本文将此前多轮对话中的项目目标、已验证事实、用户决策、排错结论和未完成事项压缩为可随仓库迁移的上下文。它不是逐字聊天备份，不含密码、密钥、令牌或原始调试日志，也不会迁移某个服务的内置聊天记忆。
 
 ## 1. 新 Agent 的阅读顺序
@@ -26,8 +28,8 @@
 | 仍依赖人工配置 | 场景语义、部分推箱目标、平台 entry/landing portal |
 | 世界模型/VLM/视觉 | 尚未实现学习世界模型、VLM proposal 和 RGB-D 推理闭环 |
 | 高台任务的真实进度 | 已清除台阶入口阻挡并爬台阶；未完成把箱体推成支撑物后两次 CLIMB |
-| 当前迁移目标 | 从旧开发机/单卡训练服务器迁移到新双 RTX 4090 服务器；新机验收尚无完成记录 |
-| 下一项开发 | 新机基线验收后，补技能级 transition、完整快照回放和物理候选 Oracle |
+| 当前迁移状态 | 新双 RTX 4090 服务器已部署，MuJoCo 回归和两次独立 GPU 冒烟通过；DDP 未验证 |
+| 下一项开发 | 已有起点快照和物理候选 pilot；继续技能内事件标签、参数化场景、能力 profile 与几何候选 grounding |
 
 ## 3. 用户已经确认的方向
 
@@ -92,7 +94,7 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 | [complex_course_env.py](../mujoco/reconfigurable_navigation/complex_course_env.py) | 固定复杂课程真值及人工 portal |
 | [CLIMB 训练记录](CLIMB_TRAINING_CN.md) | 任务参数、原训练 run、指标、导出和诊断结果 |
 
-当前 `SkillExecutionRecord` 只有 `action/status/steps`，不能直接当世界模型训练数据。现有 Oracle 通过栅格可达性和假设移除对象生成计划，不是对多个动作做完整物理 rollout 的 Oracle。
+旧 `SkillExecutionRecord` 保持兼容；可选 `on_transition` 提供前后观测、时间及中断语义，`on_skill_start` 支持保存起点快照。离线候选工具已能在独立物理分支执行参数扰动，但当前生产 Oracle 仍使用栅格/移除对象规则，尚未用物理候选评分或学习模型决定动作。
 
 原方案中的 8x128x128 BEV、32x16 Object Tokens 和世界模型 heads 是后续规格，不要与低层 actor 的 210/253 维观测混淆，也不要声称这些训练编码已全部实现。
 
@@ -104,7 +106,7 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 | 旧单卡 Isaac | Ubuntu 22.04.4，驱动 580.82.07，RTX 4090，Python 3.11.16，PyTorch 2.7.0+cu128 |
 | Isaac 栈 | Isaac Sim 5.1.0.0，Isaac Lab 0.54.4，RSL-RL 5.0.1，NumPy 1.26.0 |
 | Isaac Lab 固定提交 | `b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8`，2026-09-11 只读查询时工作树干净 |
-| 新双 4090 服务器 | 仅有迁移目标与文档，没有已完成安装、双卡训练或 DDP 验收的记录 |
+| 新双 4090 服务器 | MuJoCo 安装及回归通过，两张 GPU 分别完成 16 环境单次 PPO；双卡并发和 DDP 未验证 |
 
 旧路径仅用于寻找历史资料，不是新服务器默认路径：
 
@@ -173,7 +175,7 @@ LiveAgent 曾作为可选远程操作工具配置：旧 Ubuntu 24.04 上 AppImag
 详细范围与门槛以 [后续开发规划](RECONFIGURABLE_NAVIGATION_NEXT_PLAN_CN.md) 为准。该规划已经写出，但其中新模块尚未实现。
 
 1. **N0**：在新机复现现有 golden regression，冻结环境、actor、控制和场景版本。
-2. **N1**：增加 SkillTransition、失败/中断标签、完整物理和控制器快照。先采集约 500-1000 条 pilot 数据，要求同快照可复现。
+2. **N1**：已有 SkillTransition、技能起点快照和 542 条实际执行 pilot；继续原因/事件标签和数据质量覆盖。当前仅一个场景族，不能用样本数代替泛化评估。
 3. **N2**：参数化场景、多个几何候选、独立 MuJoCo 分支 rollout；假设移除对象不能代替真实物理教师。
 4. **N3/N4**：先做特权状态 NAV/PUSH 世界模型和校准，再做模型驱动的搜索/CEM/闭环；低层支持 CLIMB 不等于模型已覆盖它。
 5. **后续分支**：VLM proposal、RGB-D 输入替换、移动箱体支撑高台分别验收。JUMP、Gap Repair、搭桥和实机迁移不阻塞当前世界模型 MVP。

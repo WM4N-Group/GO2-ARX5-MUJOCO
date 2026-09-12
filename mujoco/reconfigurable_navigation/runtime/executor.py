@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 
 import numpy as np
 
 from ..climb_runtime import ClimbRuntime
+from ..data import SkillTransition
 from ..env import BlockedPassageEnv
 from ..locomotion_runtime import LocomotionRuntime
 from ..representations import OracleObservation, SkillAction, SkillType
@@ -27,6 +29,8 @@ StepCallback = Callable[
     [SkillAction | None, Skill | None, OracleObservation], bool
 ]
 EventCallback = Callable[[str], None]
+TransitionCallback = Callable[[SkillTransition], None]
+SkillStartCallback = Callable[[SkillAction, SkillType | None], None]
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,8 @@ class ReconfigurableExecutor:
         self,
         on_step: StepCallback | None = None,
         on_event: EventCallback | None = None,
+        on_transition: TransitionCallback | None = None,
+        on_skill_start: SkillStartCallback | None = None,
     ) -> ExecutionResult:
         records: list[SkillExecutionRecord] = []
         replans = 0
@@ -160,6 +166,12 @@ class ReconfigurableExecutor:
                     replans,
                     skill_failures,
                 )
+            observation_before = deepcopy(observation) if on_transition is not None else None
+            action_before = deepcopy(action) if on_transition is not None else None
+            started_at = float(self.env.data.time) if on_transition is not None else 0.0
+            previous_skill = records[-1].action.skill if records else None
+            if on_skill_start is not None:
+                on_skill_start(deepcopy(action), previous_skill)
             skill.reset(action)
             self._event(on_event, f"EXECUTE skill={action.skill.name}")
             status, steps, interrupted = self._execute_skill(
@@ -168,6 +180,22 @@ class ReconfigurableExecutor:
             records.append(
                 SkillExecutionRecord(action=action, status=status, steps=steps)
             )
+            if on_transition is not None:
+                assert observation_before is not None and action_before is not None
+                on_transition(
+                    SkillTransition(
+                        action=action_before,
+                        observation_before=observation_before,
+                        observation_after=deepcopy(self.env.observe()),
+                        status=status,
+                        skill_steps=steps,
+                        started_at=started_at,
+                        ended_at=float(self.env.data.time),
+                        control_dt=self.runtime.control_dt,
+                        previous_skill=previous_skill,
+                        interrupted=interrupted,
+                    )
+                )
             self._event(
                 on_event,
                 f"FINISH skill={action.skill.name} status={status.value} "

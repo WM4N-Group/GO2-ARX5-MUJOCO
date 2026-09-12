@@ -86,8 +86,10 @@ class ClimbRuntime:
 
         self.policy = torch.jit.load(str(policy_path), map_location="cpu")
         self.policy.eval()
+        self.actuator_delay_steps = ACTUATOR_DELAY_STEPS.copy()
+        self.joint_velocity_limits = JOINT_VELOCITY_LIMITS.copy()
         self.target_history: deque[np.ndarray] = deque(
-            maxlen=int(ACTUATOR_DELAY_STEPS.max()) + 1
+            maxlen=int(self.actuator_delay_steps.max()) + 1
         )
         self.last_action = np.zeros(18, dtype=np.float64)
         self.velocity_command = np.array([0.5, 0.0, 0.0], dtype=np.float64)
@@ -242,7 +244,7 @@ class ClimbRuntime:
             delayed_target = np.array(
                 [
                     target_history[-1 - delay][joint_index]
-                    for joint_index, delay in enumerate(ACTUATOR_DELAY_STEPS)
+                    for joint_index, delay in enumerate(self.actuator_delay_steps)
                 ]
             )
             joint_position = self.data.qpos[self.joint_qpos_adr]
@@ -256,8 +258,8 @@ class ClimbRuntime:
             mujoco.mj_step(self.model, self.data)
             limited_joint_velocity = np.clip(
                 self.data.qvel[self.joint_dof_adr],
-                -JOINT_VELOCITY_LIMITS,
-                JOINT_VELOCITY_LIMITS,
+                -self.joint_velocity_limits,
+                self.joint_velocity_limits,
             )
             self.data.qvel[self.joint_dof_adr] = limited_joint_velocity
             self.data.qpos[self.joint_qpos_adr] = (
