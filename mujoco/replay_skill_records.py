@@ -33,7 +33,7 @@ def compare_record(actual: object, expected: object, atol: float, path: str = "r
 
 
 def replay_record(record: dict, source: Path, repeats: int = 3, atol: float = 1.0e-6) -> None:
-    if record["schema_version"] != 1:
+    if record["schema_version"] not in (1, 2):
         raise ValueError("Unsupported transition schema")
     metadata = record["metadata"]
     snapshot_path = source.parent / metadata["snapshot_file"]
@@ -56,7 +56,15 @@ def replay_record(record: dict, source: Path, repeats: int = 3, atol: float = 1.
             raise AssertionError(f"Recorded action rejected during replay: {result.reason}")
         actual = json.loads(result.transition.to_json())
         actual.pop("metadata")
-        compare_record(actual, expected, atol)
+        comparison = expected.copy()
+        if record["schema_version"] == 1:
+            actual = {key: actual[key] for key in expected}
+            actual["schema_version"] = 1
+        elif record["interrupted"]:
+            if actual.pop("termination_reason") != "rollout_budget_exhausted":
+                raise AssertionError("Interrupted replay must stop at the recorded budget")
+            comparison.pop("termination_reason")
+        compare_record(actual, comparison, atol)
     print(
         f"REPLAY PASSED episode={metadata['episode_id']} skill_index={metadata['skill_index']} "
         f"skill={action.skill.name} outcome={record['outcome']} repeats={repeats} atol={atol}"

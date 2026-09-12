@@ -26,6 +26,7 @@ class SkillCommand:
 
 class Skill(ABC):
     status: SkillStatus = SkillStatus.IDLE
+    failure_reason: str | None = None
 
     @abstractmethod
     def can_execute(

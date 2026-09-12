@@ -9,6 +9,7 @@ import json
 import numpy as np
 
 from ..representations import SkillAction, SkillType
+from .events import EVENT_KINDS
 from .snapshot import SkillReplay
 
 
@@ -58,8 +59,9 @@ def candidate_payload(candidate: SkillCandidate, result: SkillReplay) -> dict:
     executed = transition is not None
     truncated = result.reason == "rollout_budget_exhausted"
     outcome = "rejected" if not executed else "truncated" if truncated else transition["outcome"]
+    process_labels = dict.fromkeys(EVENT_KINDS) if transition is None else transition["process_labels"]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "candidate_source": candidate.source,
         "action": {
             "skill": int(candidate.action.skill),
@@ -70,13 +72,20 @@ def candidate_payload(candidate: SkillCandidate, result: SkillReplay) -> dict:
         "executed": executed,
         "truncated": truncated,
         "outcome": outcome,
-        "reason": result.reason,
+        "reason": result.reason if transition is None else transition["termination_reason"],
+        "failure_reason": None if transition is None else transition["failure_reason"],
         "skill_success": None if transition is None else transition["skill_success"],
+        "process_labels": process_labels,
         "label_validity": {
             "dynamics": executed,
             "skill_success": executed and not transition["interrupted"],
             "reachability": False,
             "support_stable": False,
+            "failure_reason": executed and transition["failure_reason"] is not None,
+            **{
+                kind: value is not None and (not transition["interrupted"] or value)
+                for kind, value in process_labels.items()
+            },
         },
         "transition": transition,
     }

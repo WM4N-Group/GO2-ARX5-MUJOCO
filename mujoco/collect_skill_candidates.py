@@ -89,13 +89,13 @@ def main() -> None:
         parser.error("Source record indices do not exist")
     for index in indices:
         record = records[index]
-        if record["schema_version"] != 1 or "snapshot_file" not in record["metadata"]:
+        if record["schema_version"] not in (1, 2) or "snapshot_file" not in record["metadata"]:
             parser.error("Every selected record must reference a compatible snapshot")
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
     source_sha256 = hashlib.sha256(raw_source).hexdigest()
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "complete": False,
         "source_jsonl": os.path.relpath(source_path, output_dir),
         "source_sha256": source_sha256,
@@ -107,7 +107,7 @@ def main() -> None:
         "torch_threads_per_worker": 1,
         "scene_families": ["complex_course_fixed_layout"],
         "split": "pilot_unsplit",
-        "limitations": ["local parameter perturbations, not grounded plans", "no reachability or support-stability labels", "single scene family, not held-out evaluation"],
+        "limitations": ["local parameter perturbations, not grounded plans", "no reachability or support-stability labels", "single scene family, not held-out evaluation", "events sampled at control boundaries; substep contacts may be missed"],
     }
     repository = Path(__file__).resolve().parents[1]
     manifest["git_commit"] = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()

@@ -84,6 +84,7 @@ class PushSkill(Skill):
             raise ValueError("PushSkill requires a valid object_id")
         self.action = action
         self.status = SkillStatus.RUNNING
+        self.failure_reason = None
         self.phase = PushPhase.ALIGN
         self.steps = 0
         self.phase_steps = 0
@@ -97,25 +98,29 @@ class PushSkill(Skill):
     def step(self, observation: OracleObservation) -> SkillCommand:
         if self.status != SkillStatus.RUNNING or self.action is None:
             raise RuntimeError("PushSkill must be reset before step")
-        if not observation.state_valid or observation.illegal_collision:
-            return self._fail()
+        if not observation.state_valid:
+            return self._fail("invalid_robot_state")
+        if observation.illegal_collision:
+            return self._fail("illegal_collision")
 
         obj = self._object(observation, self.action.object_id)
-        if obj is None or not obj.movable:
-            return self._fail()
+        if obj is None:
+            return self._fail("object_missing")
+        if not obj.movable:
+            return self._fail("object_not_movable")
         if obj.mass > observation.capability.max_pushable_mass:
-            return self._fail()
+            return self._fail("object_too_heavy")
         if self.action.object_id in observation.body_contact_object_ids:
-            return self._fail()
+            return self._fail("body_contact")
 
         if self.initial_object_xy is None:
             if not self._initialize_geometry(obj):
-                return self._fail()
+                return self._fail("degenerate_push_target")
 
         self.steps += 1
         self.phase_steps += 1
         if self.steps > self.config.timeout_steps:
-            return self._fail()
+            return self._fail("timeout")
 
         progress, lateral_error = self._progress(obj)
         if progress >= self.best_progress + self.config.progress_epsilon:
@@ -136,7 +141,7 @@ class PushSkill(Skill):
             if fingertip_contact:
                 self._set_phase(PushPhase.PUSH)
             elif self.phase_steps > self.config.contact_timeout_steps:
-                return self._fail()
+                return self._fail("contact_timeout")
             return self._push_command(observation, obj)
 
         if self.phase == PushPhase.PUSH:
@@ -144,13 +149,13 @@ class PushSkill(Skill):
                 self._set_phase(PushPhase.VERIFY)
                 return self._stop_command(push_pose=True)
             if self.no_progress_steps > self.config.no_progress_timeout_steps:
-                return self._fail()
+                return self._fail("no_progress")
             return self._push_command(observation, obj)
 
         if self.phase == PushPhase.VERIFY:
             if self.phase_steps >= self.config.verify_steps:
                 if not self._target_reached(progress, lateral_error):
-                    return self._fail()
+                    return self._fail("target_not_maintained")
                 self._set_phase(PushPhase.RETREAT)
             return self._stop_command(push_pose=True)
 
@@ -275,8 +280,9 @@ class PushSkill(Skill):
         self.phase = phase
         self.phase_steps = 0
 
-    def _fail(self) -> SkillCommand:
+    def _fail(self, reason: str) -> SkillCommand:
         self.status = SkillStatus.FAILED
+        self.failure_reason = reason
         return self._stop_command(push_pose=False)
 
     @staticmethod

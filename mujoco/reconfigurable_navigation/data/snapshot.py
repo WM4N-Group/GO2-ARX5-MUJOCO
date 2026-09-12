@@ -16,6 +16,7 @@ import torch
 
 from ..representations import SkillAction, SkillType
 from ..skills.base import SkillStatus
+from .events import SkillEventRecorder
 from .transition import SkillTransition
 
 if TYPE_CHECKING:
@@ -148,8 +149,9 @@ class SimulatorSnapshot:
                 )
 
             skill.reset(action)
+            event_recorder = SkillEventRecorder()
             status, steps, truncated = branch._execute_skill(
-                action, skill, within_budget, None
+                action, skill, within_budget, None, event_recorder
             )
             transition = SkillTransition(
                 action=action_before,
@@ -162,6 +164,9 @@ class SimulatorSnapshot:
                 control_dt=branch.runtime.control_dt,
                 previous_skill=self._previous_skill,
                 interrupted=truncated,
+                events=tuple(event_recorder.events),
+                event_sample_count=event_recorder.sample_count,
+                termination_reason="rollout_budget_exhausted" if truncated else skill.failure_reason,
             )
             successor = None if truncated else SimulatorSnapshot.capture(branch, action.skill)
             reason = "rollout_budget_exhausted" if truncated else status.value

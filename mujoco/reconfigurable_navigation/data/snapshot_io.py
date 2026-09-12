@@ -59,7 +59,7 @@ def _code_fingerprint() -> str:
         "representations.py", "occupancy.py", "oracle_planner.py", "runtime/executor.py",
         "runtime/replanner.py", "runtime/safety.py", "skills/base.py", "skills/navigate.py",
         "skills/push.py", "skills/climb.py", "data/transition.py", "data/snapshot.py",
-        "data/snapshot_io.py",
+        "data/snapshot_io.py", "data/events.py",
     )
     digest = hashlib.sha256()
     for relative in files:

@@ -164,6 +164,8 @@ python mujoco/check_complex_course.py --seeds 10 --record-jsonl logs/n1-transiti
 
 `--record-jsonl` 是可选的单进程追加输出，不改变默认技能执行或任务成功条件。每条数据包含 schema_version、动作、前后观测拷贝、前序技能、技能状态、仿真时间和 episode/seed 元数据；总耗时包含 CLIMB 准备阶段。用户中断的 skill_success 为 null，非有限数值不会作为合法 JSON 写出。
 
+当前 schema v2 增加控制步过程事件、PUSH 阶段、结束原因与标签掩码；中途出现后恢复的接触/异常仍会保留。事件只覆盖控制边界，不保证捕获物理子步短暂接触。新版分别在本地和服务器通过 32 项合约和 60 请求物理候选验证，完整语义见 [过程事件记录](../../docs/N1_SKILL_EVENTS_CN.md)。重放新版应重新生成快照，不绕过旧归档的运行代码指纹检查。
+
 新服务器已通过 7 项合约测试及带记录复杂课程 `10/10`，生成 50 条记录，其中 48 条技能成功、2 条失败。整体到达目标不等于每个技能都成功，不能把任务结果覆盖为每条技能的正标签。
 
 单独的 JSONL 是技能边界观测记录，完整物理和控制器快照需要额外指定 `--snapshot-dir`。并行 worker 应写不同文件；异常中止后应检查末行完整性。详细新机结果见 [部署与开发记录](../../docs/YUANYUE_SERVER_STATUS_CN.md)。
@@ -198,6 +200,7 @@ python mujoco/collect_skill_candidates.py --record-jsonl logs/replay-source.json
 | `runtime/replanner.py` | 将每次最新 Oracle 计划归约为一个下一动作 |
 | `runtime/executor.py` | 逐技能执行、重新观测、失败重试和终态控制 |
 | `data/transition.py` | 可序列化技能边界观测、时间和中断语义 |
+| `data/events.py` | 控制步接触/状态事件边沿与 PUSH 阶段记录 |
 | `data/snapshot.py` / `data/snapshot_io.py` | 独立物理快照、原生缓存归档与技能级回放 |
 | `data/candidates.py` | 采集用参数扰动与拒绝/截断标签 |
 | `replay_skill_records.py` / `collect_skill_candidates.py` | 归档重放与批量物理候选采集入口 |

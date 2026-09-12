@@ -53,12 +53,14 @@ class NavigateSkill(Skill):
         self.action = action
         self.steps = 0
         self.status = SkillStatus.RUNNING
+        self.failure_reason = None
 
     def step(self, observation: OracleObservation) -> SkillCommand:
         if self.status != SkillStatus.RUNNING or self.action is None:
             raise RuntimeError("NavigateSkill must be reset before step")
         if not observation.state_valid:
             self.status = SkillStatus.FAILED
+            self.failure_reason = "invalid_robot_state"
             return self._stop_command()
 
         self.steps += 1
@@ -128,6 +130,7 @@ class NavigateSkill(Skill):
 
         if self.steps >= self.config.timeout_steps:
             self.status = SkillStatus.FAILED
+            self.failure_reason = "timeout"
             return self._stop_command()
         return SkillCommand(velocity, self._default_ee_pose())
 

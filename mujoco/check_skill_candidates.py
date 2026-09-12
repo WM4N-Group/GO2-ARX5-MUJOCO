@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import unittest
 
 import numpy as np
 
 from reconfigurable_navigation.data.candidates import SkillCandidate, build_candidates, candidate_payload
+from reconfigurable_navigation.data.events import SkillEvent
 from reconfigurable_navigation.data.snapshot import SkillReplay
 from reconfigurable_navigation.data.transition import SkillTransition
 from reconfigurable_navigation.representations import Capability, OracleObservation, SkillAction, SkillType
@@ -54,6 +56,8 @@ class CandidateChecks(unittest.TestCase):
         self.assertIsNone(payload["transition"])
         self.assertIsNone(payload["skill_success"])
         self.assertFalse(payload["label_validity"]["dynamics"])
+        self.assertIsNone(payload["process_labels"]["illegal_collision"])
+        self.assertFalse(payload["label_validity"]["illegal_collision"])
         json.dumps(payload, allow_nan=False)
 
     def test_budget_truncation_masks_success_label(self) -> None:
@@ -75,6 +79,27 @@ class CandidateChecks(unittest.TestCase):
     def test_unsupported_reference_skill_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             build_candidates(SkillAction(SkillType.JUMP, np.zeros(4)), count=5, seed=0)
+
+    def test_truncated_process_labels_mask_unobserved_negatives(self) -> None:
+        transition = replace(
+            self.transition(True), event_sample_count=2,
+            events=(SkillEvent("illegal_collision", 0.02, 1, "execution", True),),
+            termination_reason="rollout_budget_exhausted",
+        )
+        payload = candidate_payload(SkillCandidate("reference", self.action), SkillReplay(transition, None, "rollout_budget_exhausted"))
+        self.assertEqual(payload["reason"], "rollout_budget_exhausted")
+        self.assertTrue(payload["label_validity"]["illegal_collision"])
+        self.assertFalse(payload["label_validity"]["body_contact"])
+        self.assertIsNone(payload["failure_reason"])
+        self.assertEqual(payload["transition"]["process_label_scope"], "observed_prefix")
+
+    def test_known_failure_reason_has_a_valid_label(self) -> None:
+        transition = replace(self.transition(), termination_reason="contact_timeout")
+        payload = candidate_payload(SkillCandidate("reference", self.action), SkillReplay(transition, None, "failed"))
+        self.assertEqual(payload["reason"], "contact_timeout")
+        self.assertEqual(payload["failure_reason"], "contact_timeout")
+        self.assertTrue(payload["label_validity"]["failure_reason"])
+        self.assertFalse(payload["label_validity"]["end_effector_contact"])
 
 
 if __name__ == "__main__":

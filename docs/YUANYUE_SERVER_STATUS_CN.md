@@ -4,12 +4,14 @@
 
 后续进度：完整技能起点快照和跨进程重放已通过，新增 600 请求/542 条执行记录的候选 pilot；详见 [N1 快照与数据记录](N1_REPLAY_DATA_CN.md)。下文第 7 节保留最早 50 条边界记录的阶段性结果。
 
+2026-09-12 更新：schema v2 控制步过程事件和技能失败原因已同步并在新服务器通过 32 项合约、复杂课程 10/10、CLIMB 切换 10/10、PUSH 5/5 和五个技能各三次跨进程重放。新增 60 请求为 44 成功、9 失败、7 拒绝；预算测试为 6 截断、3 拒绝，详见 [过程事件验收](N1_SKILL_EVENTS_CN.md)。数据保存在 `/mnt/yuanyue/data/n1-events-uDR6Is/`。SSH 公钥登录已通过全新无复用连接验证，本地别名为 `go2-yuanyue`。
+
 ## 1. 当前结论
 
 - 新服务器的 mihomo、隔离 MuJoCo 环境和隔离 Isaac 环境已经部署。
 - MuJoCo 原有基线全部通过；两张 GPU 分别完成 `16 env x 1 PPO iteration` 的真实 Isaac 验收并生成 checkpoint。
 - 原 CLIMB 的可续训 checkpoint 和训练参数已迁移，最终部署 actor 未修改或重新训练。
-- N1 已完成可选边界记录、技能起点物理/控制器快照、归档重放及参数扰动物理候选 pilot。技能内部事件标签、多场景划分和正式训练数据集仍待完成。
+- N1 已完成可选边界记录、技能起点物理/控制器快照、归档重放、控制步事件及失败原因和参数扰动物理候选 pilot。逐物理步覆盖、完整失稳/支撑判据、多场景划分和正式训练数据集仍待完成。
 - 双卡同时训练、DDP、完整 checkpoint 的原生录像评估尚未在新机验收。
 
 ## 2. 环境与路径
@@ -118,4 +120,4 @@ cd /mnt/yuanyue/GO2-ARX5-MUJOCO
 /mnt/yuanyue/bin/micromamba run -p /mnt/yuanyue/envs/go2-mujoco python mujoco/check_complex_course.py --seeds 10 --record-jsonl logs/n1-transitions.jsonl
 ```
 
-该边界 JSONL 选项采用单进程追加写入，不同并行 worker 应使用不同文件。后续快照/候选功能见开头链接；原因分类、碰撞/支撑时序标签、多场景族和正式 train/validation/test 划分仍待实现。
+该边界 JSONL 选项采用单进程追加写入，不同并行 worker 应使用不同文件。后续快照/候选和事件/原因功能见开头链接；完整支撑时序判据、多场景族和正式 train/validation/test 划分仍待实现。

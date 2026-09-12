@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from types import SimpleNamespace
 import unittest
@@ -74,6 +75,7 @@ class TransitionChecks(unittest.TestCase):
         interrupt: bool = False,
         status: SkillStatus = SkillStatus.SUCCEEDED,
         record: bool = True,
+        running_steps: int = 0,
     ):
         env = TestEnvironment()
         runtime = TestRuntime(env)
@@ -98,9 +100,16 @@ class TransitionChecks(unittest.TestCase):
         ]
         skill = Mock(spec=Skill)
         skill.can_execute.return_value = True
-        skill.config = SimpleNamespace(timeout_steps=1)
-        skill.status = status
-        skill.step.return_value = SkillCommand(np.zeros(3), np.zeros(7))
+        skill.config = SimpleNamespace(timeout_steps=max(1, running_steps + 1))
+        skill.status = SkillStatus.RUNNING
+        skill.failure_reason = None
+        statuses = iter([SkillStatus.RUNNING] * running_steps + [status])
+
+        def advance_skill(_observation):
+            skill.status = next(statuses)
+            return SkillCommand(np.zeros(3), np.zeros(7))
+
+        skill.step.side_effect = advance_skill
         executor = ReconfigurableExecutor(
             env,
             runtime,
@@ -159,17 +168,54 @@ class TransitionChecks(unittest.TestCase):
         payload = json.loads(transitions[0].to_json())
         self.assertEqual(payload["outcome"], "interrupted")
         self.assertIsNone(payload["skill_success"])
+        self.assertEqual(payload["termination_reason"], "execution_interrupted")
+        self.assertIsNone(payload["failure_reason"])
 
     def test_climb_preparation_is_included_in_elapsed_time(self) -> None:
         _env, _action, result, transitions = self.execute(SkillType.CLIMB)
         self.assertTrue(result.succeeded)
         self.assertEqual(transitions[0].skill_steps, 1)
         self.assertAlmostEqual(transitions[0].elapsed_sim_time, 0.52)
+        self.assertEqual(transitions[0].event_sample_count, 27)
+
+    def test_transient_contacts_and_collision_survive_final_recovery(self) -> None:
+        original_step = TestRuntime.step
+        updates = iter([
+            dict(
+                contact_object_ids=(10,),
+                end_effector_contact_object_ids=(10,),
+                illegal_collision=True,
+            ),
+            dict(
+                contact_object_ids=(),
+                end_effector_contact_object_ids=(),
+                illegal_collision=False,
+            ),
+            {},
+        ])
+
+        def advance(runtime, velocity, end_effector_pose=None):
+            original_step(runtime, velocity, end_effector_pose)
+            runtime.env.observation = replace(
+                runtime.env.observation, **next(updates, {})
+            )
+
+        with patch.object(TestRuntime, "step", new=advance):
+            _env, _action, result, transitions = self.execute(running_steps=2)
+        payload = json.loads(transitions[0].to_json())
+        self.assertTrue(result.succeeded)
+        self.assertFalse(payload["observation_after"]["illegal_collision"])
+        collisions = [event for event in payload["events"] if event["kind"] == "illegal_collision"]
+        self.assertEqual([event["active"] for event in collisions], [True, False])
+        self.assertEqual([event["control_step"] for event in collisions], [1, 2])
+        self.assertEqual(payload["event_sample_count"], 4)
+        self.assertTrue(payload["process_labels"]["illegal_collision"])
+        self.assertTrue(payload["process_labels"]["end_effector_contact"])
 
     def test_json_handles_numpy_and_enum_values(self) -> None:
         _env, _action, _result, transitions = self.execute()
         payload = json.loads(transitions[0].to_json({"seed": np.int64(0)}))
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["action"]["skill"], int(SkillType.NAV))
         self.assertEqual(payload["metadata"]["seed"], 0)
         self.assertEqual(len(payload["observation_before"]["robot_state"]), 12)

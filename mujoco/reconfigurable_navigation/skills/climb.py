@@ -59,6 +59,7 @@ class ClimbSkill(Skill):
             raise ValueError("ClimbSkill requires CLIMB with [x, y, z, yaw]")
         self.action = action
         self.status = SkillStatus.RUNNING
+        self.failure_reason = None
         self.steps = 0
         self.stable_steps = 0
         self.start_xy = None
@@ -68,8 +69,10 @@ class ClimbSkill(Skill):
     def step(self, observation: OracleObservation) -> SkillCommand:
         if self.status != SkillStatus.RUNNING or self.action is None:
             raise RuntimeError("ClimbSkill must be reset before step")
-        if not observation.state_valid or observation.illegal_collision:
-            return self._fail()
+        if not observation.state_valid:
+            return self._fail("invalid_robot_state")
+        if observation.illegal_collision:
+            return self._fail("illegal_collision")
 
         if self.start_xy is None:
             self._initialize_geometry(observation)
@@ -98,7 +101,7 @@ class ClimbSkill(Skill):
             self.stable_steps = 0
 
         if self.steps >= self.config.timeout_steps:
-            return self._fail()
+            return self._fail("timeout")
         return SkillCommand(
             np.array([self.config.forward_speed, 0.0, 0.0], dtype=np.float32),
             self._neutral_pose(),
@@ -149,8 +152,9 @@ class ClimbSkill(Skill):
         else:
             self.direction = delta / self.target_progress
 
-    def _fail(self) -> SkillCommand:
+    def _fail(self, reason: str) -> SkillCommand:
         self.status = SkillStatus.FAILED
+        self.failure_reason = reason
         return self._stop_command()
 
     @staticmethod

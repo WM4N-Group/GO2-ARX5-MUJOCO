@@ -10,6 +10,7 @@ import numpy as np
 
 from ..climb_runtime import ClimbRuntime
 from ..data import SkillTransition
+from ..data.events import SkillEventRecorder
 from ..env import BlockedPassageEnv
 from ..locomotion_runtime import LocomotionRuntime
 from ..representations import OracleObservation, SkillAction, SkillType
@@ -174,14 +175,16 @@ class ReconfigurableExecutor:
                 on_skill_start(deepcopy(action), previous_skill)
             skill.reset(action)
             self._event(on_event, f"EXECUTE skill={action.skill.name}")
+            event_recorder = SkillEventRecorder() if on_transition is not None else None
             status, steps, interrupted = self._execute_skill(
-                action, skill, on_step, on_event
+                action, skill, on_step, on_event, event_recorder
             )
             records.append(
                 SkillExecutionRecord(action=action, status=status, steps=steps)
             )
             if on_transition is not None:
                 assert observation_before is not None and action_before is not None
+                assert event_recorder is not None
                 on_transition(
                     SkillTransition(
                         action=action_before,
@@ -194,6 +197,9 @@ class ReconfigurableExecutor:
                         control_dt=self.runtime.control_dt,
                         previous_skill=previous_skill,
                         interrupted=interrupted,
+                        events=tuple(event_recorder.events),
+                        event_sample_count=event_recorder.sample_count,
+                        termination_reason="execution_interrupted" if interrupted else skill.failure_reason,
                     )
                 )
             self._event(
@@ -218,9 +224,31 @@ class ReconfigurableExecutor:
         skill: Skill,
         on_step: StepCallback | None,
         on_event: EventCallback | None,
+        event_recorder: SkillEventRecorder | None = None,
     ) -> tuple[SkillStatus, int, bool]:
         timeout_steps = skill.config.timeout_steps
-        if action.skill == SkillType.CLIMB and self.active_runtime != SkillType.CLIMB:
+        preparing = action.skill == SkillType.CLIMB and self.active_runtime != SkillType.CLIMB
+        control_steps = 0
+        if event_recorder is not None:
+            event_recorder.sample(
+                self.env.observe(), self.env.data.time, 0,
+                "preparation" if preparing else "execution",
+                skill.phase.value if isinstance(skill, PushSkill) else None,
+            )
+
+        def after_step(stage: str) -> bool:
+            nonlocal control_steps
+            control_steps += 1
+            if event_recorder is None:
+                return self._step(on_step, action, skill)
+            observation = self.env.observe()
+            event_recorder.sample(
+                observation, self.env.data.time, control_steps, stage,
+                skill.phase.value if isinstance(skill, PushSkill) else None,
+            )
+            return on_step is None or on_step(action, skill, observation)
+
+        if preparing:
             self._event(
                 on_event,
                 "PREPARE skill=CLIMB "
@@ -228,7 +256,7 @@ class ReconfigurableExecutor:
             )
             for _ in range(self.climb_transition_steps):
                 self.runtime.hold_default()
-                if not self._step(on_step, action, skill):
+                if not after_step("preparation"):
                     return SkillStatus.FAILED, 0, True
         self._activate_runtime(action.skill)
         previous_phase = skill.phase if isinstance(skill, PushSkill) else None
@@ -237,13 +265,14 @@ class ReconfigurableExecutor:
         for step in range(timeout_steps + 1):
             command = skill.step(self.env.observe())
             self._advance_runtime(action.skill, command)
-            if not self._step(on_step, action, skill):
+            if not after_step("execution"):
                 return SkillStatus.FAILED, step + 1, True
             if isinstance(skill, PushSkill) and skill.phase != previous_phase:
                 self._event(on_event, f"PHASE skill=PUSH phase={skill.phase.value}")
                 previous_phase = skill.phase
             if skill.status != SkillStatus.RUNNING:
                 return skill.status, step + 1, False
+        skill.failure_reason = "executor_timeout"
         return SkillStatus.FAILED, timeout_steps + 1, False
 
     def _step(
