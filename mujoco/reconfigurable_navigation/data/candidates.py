@@ -30,7 +30,7 @@ def candidate_scene_metadata(record: dict) -> dict:
     return {"scene_family": family, **{name: deepcopy(metadata[name]) for name in fields if name in metadata}}
 
 
-def build_candidates(action: SkillAction, *, count: int, seed: int) -> tuple[SkillCandidate, ...]:
+def build_candidates(action: SkillAction, *, count: int, seed: int, observation=None, scene_family: str | None = None) -> tuple[SkillCandidate, ...]:
     if count < 3:
         raise ValueError("At least three candidates are required")
     expected_size = 4 if action.skill == SkillType.CLIMB else 3
@@ -38,6 +38,10 @@ def build_candidates(action: SkillAction, *, count: int, seed: int) -> tuple[Ski
         raise ValueError("Candidate collection only supports executable skills")
     if action.target_pose.shape != (expected_size,) or not np.isfinite(action.target_pose).all():
         raise ValueError("Reference action must be finite with the expected target shape")
+    if scene_family == "box_support_nominal":
+        if observation is None:
+            raise ValueError("Box-support candidates require snapshot observations")
+        return _box_support_candidates(action, observation, count=count, seed=seed)
     generator = np.random.default_rng(seed)
     candidates = [SkillCandidate("reference", deepcopy(action))]
     for index in range(count - 2):
@@ -61,6 +65,51 @@ def build_candidates(action: SkillAction, *, count: int, seed: int) -> tuple[Ski
         if action.skill == SkillType.PUSH
         else SkillAction(action.skill, np.empty(0), action.object_id, action.support_id)
     )
+    candidates.append(SkillCandidate("invalid_request", invalid))
+    return tuple(candidates)
+
+
+def _box_support_candidates(action, observation, *, count, seed):
+    from ..box_support_env import BOX_ID, PLATFORM_ID
+    from ..box_support_geometry import nominal_push_target, push_target_supported, surface_action_offset
+
+    objects = {obj.object_id: obj for obj in observation.objects}
+    box, platform = objects[BOX_ID], objects[PLATFORM_ID]
+    surface = None if action.skill == SkillType.PUSH else objects[action.support_id]
+    if action.skill == SkillType.PUSH:
+        nominal = nominal_push_target(box, platform)
+        rotation = np.eye(2)
+        scale = np.array([0.04, 0.06])
+        source = "support_parking"
+    else:
+        nominal = surface.climb_entry_pose if action.skill == SkillType.NAV else surface.climb_landing_pose
+        rotation = np.array([[np.cos(surface.yaw), -np.sin(surface.yaw)], [np.sin(surface.yaw), np.cos(surface.yaw)]])
+        scale = np.array([0.06, 0.06]) if action.skill == SkillType.NAV else np.array([0.08, 0.06])
+        source = "support_approach" if action.skill == SkillType.NAV else "support_landing"
+    generator = np.random.default_rng(seed)
+    offsets = np.array([[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0], [-0.75, 0.75], [0.75, -0.75]])
+    generator.shuffle(offsets)
+    candidates = [SkillCandidate("reference", deepcopy(action))]
+    seen = {tuple(action.target_pose.tolist())}
+    for attempt in range(max(128, count * 20)):
+        offset = offsets[attempt] if attempt < len(offsets) else generator.uniform(-1.0, 1.0, 2)
+        target = nominal.copy()
+        target[:2] += rotation @ (offset * scale)
+        proposed = SkillAction(action.skill, target, action.object_id, action.support_id)
+        if action.skill == SkillType.PUSH:
+            valid = push_target_supported(proposed.target_pose, box, platform)
+        else:
+            standing = box if action.support_id == PLATFORM_ID else None
+            valid = surface_action_offset(proposed, surface, observation.capability, standing) is not None
+        key = tuple(proposed.target_pose.tolist())
+        if valid and key not in seen:
+            candidates.append(SkillCandidate(source, proposed))
+            seen.add(key)
+        if len(candidates) == count - 1:
+            break
+    if len(candidates) != count - 1:
+        raise ValueError("Insufficient candidates inside the supported geometric region")
+    invalid = SkillAction(action.skill, np.empty(0), action.object_id, action.support_id)
     candidates.append(SkillCandidate("invalid_request", invalid))
     return tuple(candidates)
 

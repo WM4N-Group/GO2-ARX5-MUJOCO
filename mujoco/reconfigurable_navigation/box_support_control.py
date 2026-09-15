@@ -71,7 +71,16 @@ def clear_arm(push):
     return {"skill": "CLEAR_ARM", "succeeded": reason == "arm_clear", "reason": reason, "elapsed": float(push.data.time - start_time), "target": point.tolist(), "hand_position": push.arm.hand_position().tolist()}
 
 
-def climb_surface(runtime, surface, box, duration=12.0, *, climb_speed=0.30, heading_gain=0.0):
+def surface_goal(data, surface, offset=None):
+    goal = data.geom_xpos[surface, :2]
+    return goal if offset is None else goal + data.geom_xmat[surface].reshape(3, 3)[:2, :2] @ offset
+
+
+def climb_surface(runtime, surface, box, duration=12.0, *, climb_speed=0.30, heading_gain=0.0, landing_offset=None):
+    if landing_offset is not None:
+        landing_offset = np.asarray(landing_offset, dtype=np.float64)
+        if landing_offset.shape != (2,) or not np.isfinite(landing_offset).all():
+            raise ValueError("Landing offset requires two finite surface coordinates")
     model, data = runtime.model, runtime.data
     feet = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name) for name in ("FL", "FR", "RL", "RR")]
     surfaces = {mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name) for name in ("floor", "push_box", "high_platform")}
@@ -84,7 +93,7 @@ def climb_surface(runtime, surface, box, duration=12.0, *, climb_speed=0.30, hea
     trace = []
     for step in range(round(duration / runtime.control_dt)):
         position = data.xpos[runtime.base_id]
-        goal = data.geom_xpos[surface, :2]
+        goal = surface_goal(data, surface, landing_offset)
         rotation = data.xmat[runtime.base_id].reshape(3, 3)
         yaw = np.arctan2(rotation[1, 0], rotation[0, 0])
         delta = goal - position[:2]
@@ -134,7 +143,7 @@ def climb_surface(runtime, surface, box, duration=12.0, *, climb_speed=0.30, hea
         elif low_steps * runtime.control_dt >= 0.2:
             reason = "low_posture"
         else:
-            stable = len(supported) == 4 and safe_top and np.linalg.norm(position[:2] - data.geom_xpos[surface, :2]) < 0.20 and np.linalg.norm(data.qvel[:3]) < 0.15 and np.linalg.norm(data.qvel[3:6]) < 0.4 and gravity[2] < -0.94
+            stable = len(supported) == 4 and safe_top and np.linalg.norm(position[:2] - surface_goal(data, surface, landing_offset)) < 0.20 and np.linalg.norm(data.qvel[:3]) < 0.15 and np.linalg.norm(data.qvel[3:6]) < 0.4 and gravity[2] < -0.94
             stable_steps = stable_steps + 1 if stable else 0
             inside_support = False
             if len(supported) >= 3:
@@ -166,13 +175,21 @@ def surface_entry(model, data, surface):
     return position, yaw
 
 
-def position_for_climb(runtime, box, *, support_height=0.0, blend_seconds=0.0):
+def position_for_climb(runtime, box, *, support_height=0.0, blend_seconds=0.0, entry_offset=None):
+    if entry_offset is not None:
+        entry_offset = np.asarray(entry_offset, dtype=np.float64)
+        if entry_offset.shape != (3,) or not np.isfinite(entry_offset).all():
+            raise ValueError("Entry offset requires two finite surface coordinates and heading")
     start_time = runtime.data.time
     reason = "approach_timeout"
     navigation = BoxNavigationRuntime(runtime, blend_seconds=blend_seconds)
     for _step in range(round(8.0 / runtime.control_dt)):
         position = runtime.data.xpos[runtime.base_id]
         target, target_yaw = surface_entry(runtime.model, runtime.data, box)
+        if entry_offset is not None:
+            rotation = np.array([[np.cos(target_yaw), -np.sin(target_yaw)], [np.sin(target_yaw), np.cos(target_yaw)]])
+            target = target + rotation @ entry_offset[:2]
+            target_yaw += entry_offset[2]
         delta = target - position[:2]
         rotation = runtime.data.xmat[runtime.base_id].reshape(3, 3)
         yaw = np.arctan2(rotation[1, 0], rotation[0, 0])

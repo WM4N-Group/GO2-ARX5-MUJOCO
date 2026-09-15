@@ -2,6 +2,8 @@
 
 更新日期：2026-09-15。用户已明确接受当前29/32组合技能成功率，要求利用现有技能推进项目。本轮完成共享executor、规则支撑规划、技能记录与快照接入，未重新训练或替换三份选定策略。集成基于此前发布的324b7a7，当前发布提交以实际Git历史为准；运行源码以记录和快照中的SHA-256为准。
 
+本页的集成阶段已发布为f311203。其后有界几何目标和42请求物理分支pilot已完成，最新范围见 [几何候选记录](BOX_SUPPORT_GEOMETRY_CN.md)；下表保留f311203阶段的验证结果，旧归档仍要求原代码指纹。
+
 ## 1. 执行范围
 
 [run_box_support_executor.py](../mujoco/run_box_support_executor.py) 使用统一AVX2数值入口，创建 [BoxSupportEnv](../mujoco/reconfigurable_navigation/box_support_env.py)、[BoxSupportPlanner](../mujoco/reconfigurable_navigation/box_support_planner.py) 和共享 [ReconfigurableExecutor](../mujoco/reconfigurable_navigation/runtime/executor.py)。
@@ -72,6 +74,6 @@ export ATEN_CPU_CAPABILITY=avx2 MKL_CBWR=AVX2 DNNL_MAX_CPU_ISA=AVX2 OMP_NUM_THRE
 
 ## 5. 下一项
 
-当前场景为5kg、摩擦0.4、20cm箱至40cm高台的固定布局。规则规划器提供既定支撑任务的动作，后端只接受与当前几何目标匹配的请求；12候选中的8次拒绝因此不能解释为8次物理不可达。现在尚未提供可调整推面/停放点的完整控制接口，也没有用物理候选评分替代规则Oracle。
+当前场景为5kg、摩擦0.4、20cm箱至40cm高台的固定布局。f311203阶段的12候选中8次拒绝来自固定目标限制，不能解释为物理不可达。后续版本已经支持有界停车、接近和落点，并实际执行了30个非默认候选；范围与数据见 [几何候选记录](BOX_SUPPORT_GEOMETRY_CN.md)。PUSH仍限于原正X推面，在线Oracle仍使用规则。
 
-下一项是为这些控制目标增加明确的几何参数与可执行范围，进入多布局数据采集，并按场景族划分数据；保留成功、物理失败、前置拒绝和截断。之后训练技能级状态转移、成功率、碰撞风险及代价模型，让模型参与候选选择。继续提高低层成功率不再是前置条件，VLM、RGB-D、JUMP与实机迁移后置。
+下一项是参数化多布局、后续任务评估和场景族划分，保留成功、物理失败、前置拒绝和截断。之后训练技能级状态转移、成功率、碰撞风险及代价模型，让模型参与候选选择。继续提高低层成功率不再是前置条件，VLM、RGB-D、JUMP与实机迁移后置。

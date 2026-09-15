@@ -40,7 +40,9 @@ def collect_snapshot(job: dict) -> list[dict]:
     )
     candidate_seed = int(np.random.SeedSequence([job["seed"], job["record_index"]]).generate_state(1)[0])
     output = []
-    for candidate_index, candidate in enumerate(build_candidates(reference, count=job["count"], seed=candidate_seed)):
+    context = candidate_scene_metadata(source_record)
+    observation = snapshot.fork().env.observe() if context["scene_family"] == "box_support_nominal" else None
+    for candidate_index, candidate in enumerate(build_candidates(reference, count=job["count"], seed=candidate_seed, observation=observation, scene_family=context["scene_family"])):
         started = time.perf_counter()
         result = snapshot.rollout(candidate.action, max_control_steps=job["max_control_steps"])
         payload = candidate_payload(candidate, result)
@@ -108,7 +110,8 @@ def main() -> None:
         "torch_threads_per_worker": 1,
         "scene_families": sorted({candidate_scene_metadata(records[index])["scene_family"] for index in indices}),
         "split": "pilot_unsplit",
-        "limitations": ["local parameter perturbations, not grounded plans", "no reachability or support-stability labels", "no held-out split; group related layouts and counterfactuals before training", "events sampled at control boundaries; substep contacts may be missed"],
+        "candidate_strategy": "bounded_box_support_geometry_or_local_perturbations",
+        "limitations": ["box-support geometry is limited to the frozen positive-X push face and nearby support targets; other scenes use local perturbations", "no reachability or support-stability labels", "no held-out split; group related layouts and counterfactuals before training", "events sampled at control boundaries; substep contacts may be missed"],
     }
     repository = Path(__file__).resolve().parents[1]
     manifest["git_commit"] = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()

@@ -16,7 +16,7 @@
 
 GO2-ARX5 分支接续请先阅读 [当前项目交接](docs/AGENT_HANDOFF_CN.md)、[服务器状态](docs/YUANYUE_SERVER_STATUS_CN.md) 和 [箱体技能验收](docs/BOX_SKILL_TRAINING_CN.md)。新候选权重、状态数据与录像不随 Git 克隆；下方是框架通用说明，环境固定版本和复现步骤以本分支交接为准。
 
-当前已接受29/32移动支撑组合，并接入共享executor及N1记录、快照和重放；入口与本轮验证见 [移动支撑执行与数据](docs/BOX_SUPPORT_EXECUTOR_CN.md)。后续使用冻结技能推进几何候选、场景族数据和特权状态世界模型。
+当前已接受29/32移动支撑组合，并接入共享executor及N1记录、快照和重放；入口见 [移动支撑执行与数据](docs/BOX_SUPPORT_EXECUTOR_CN.md)。有界停车、接近和落点候选已完成 [物理分支评估](docs/BOX_SUPPORT_GEOMETRY_CN.md)，后续使用冻结技能推进多布局场景族数据和特权状态世界模型。
 
 **面向腿足操作机器人的强化学习训练框架**
 

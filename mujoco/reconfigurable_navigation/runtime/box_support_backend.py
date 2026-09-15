@@ -6,6 +6,7 @@ from ..box_climb_runtime import BoxClimbRuntime
 from ..box_navigation_runtime import BoxNavigationRuntime
 from ..box_support_control import clear_arm, climb_surface, position_for_climb, prepare_climb, push_box
 from ..box_support_env import BOX_ID, PLATFORM_ID, BoxSupportEnv, make_episode
+from ..box_support_geometry import push_target_supported, surface_action_offset
 from ..box_support_planner import BoxSupportPlanner, operation_key
 from ..representations import SkillType
 from ..skills import ClimbSkill, NavigateSkill, PushSkill, SkillStatus
@@ -42,21 +43,22 @@ class BoxSupportBackend:
         return "preparation" if action.skill in (SkillType.PUSH, SkillType.CLIMB) else "execution"
 
     def create_skill(self, action):
-        objects = {obj.object_id: obj for obj in self.env.observe().objects}
+        observation = self.env.observe()
+        objects = {obj.object_id: obj for obj in observation.objects}
         if action.skill == SkillType.PUSH and action.object_id == BOX_ID:
-            expected = self.env.push_target
-            skill = PushSkill(PushConfig(timeout_steps=800))
+            if not push_target_supported(action.target_pose, objects[BOX_ID], objects[PLATFORM_ID]):
+                return None
+            return PushSkill(PushConfig(timeout_steps=800))
         elif action.skill in (SkillType.NAV, SkillType.CLIMB) and action.support_id in objects:
             obj = objects[action.support_id]
+            standing_surface = objects[BOX_ID] if action.support_id == PLATFORM_ID else None
+            if surface_action_offset(action, obj, observation.capability, standing_surface) is None:
+                return None
             if action.skill == SkillType.NAV:
-                expected = obj.climb_entry_pose
                 skill = NavigateSkill(NavigateConfig(timeout_steps=400))
             else:
-                expected = obj.climb_landing_pose
                 skill = ClimbSkill(ClimbConfig(timeout_steps=800, stable_steps=50))
         else:
-            return None
-        if action.target_pose.shape != expected.shape or not np.allclose(action.target_pose, expected, rtol=0.0, atol=1e-5):
             return None
         return skill
 
@@ -98,6 +100,8 @@ class BoxSupportBackend:
         try:
             if action.skill == SkillType.PUSH:
                 self.push.arm.goal = self.env.push_goal.copy()
+                if not np.allclose(action.target_pose[:2], self.push.arm.goal[:2], rtol=0.0, atol=1e-5):
+                    self.push.arm.goal[:2] = action.target_pose[:2]
                 self.push.activate()
                 bind(self.push)
                 success = perform("PUSH", "execution", push_box, self.push, self.env.seed)
@@ -105,12 +109,16 @@ class BoxSupportBackend:
                     skill.phase = PushPhase.RETREAT
                     success = perform("CLEAR_ARM", "execution", clear_arm, self.push)
             else:
+                observation = self.env.observe()
+                objects = {obj.object_id: obj for obj in observation.objects}
+                offset = surface_action_offset(action, objects[action.support_id], observation.capability)
+                offset = offset if np.any(offset) else None
                 if action.skill == SkillType.NAV:
                     if self.active_physics is not self.climb:
                         self.climb.inherit_actuator_state(self.active_physics)
                     bind(self.climb)
                     raised = action.support_id == PLATFORM_ID
-                    success = perform("POSITION_PLATFORM" if raised else "POSITION_CLIMB", "execution", position_for_climb, self.climb, self.env.object_geoms[action.support_id], support_height=0.20 if raised else 0.0, blend_seconds=0.5 if raised else 0.0)
+                    success = perform("POSITION_PLATFORM" if raised else "POSITION_CLIMB", "execution", position_for_climb, self.climb, self.env.object_geoms[action.support_id], support_height=0.20 if raised else 0.0, blend_seconds=0.5 if raised else 0.0, entry_offset=offset)
                 else:
                     raised = action.support_id == PLATFORM_ID
                     if raised:
@@ -121,7 +129,7 @@ class BoxSupportBackend:
                     bind(runtime)
                     success = perform("PREPARE_PLATFORM" if raised else "PREPARE_CLIMB", "preparation", prepare_climb, runtime, self.push, support_surface=self.env.box_geom_id if raised else None)
                     if success:
-                        success = perform("CLIMB_PLATFORM" if raised else "CLIMB_BOX", "execution", climb_surface, runtime, self.env.object_geoms[action.support_id], self.env.box_geom_id)
+                        success = perform("CLIMB_PLATFORM" if raised else "CLIMB_BOX", "execution", climb_surface, runtime, self.env.object_geoms[action.support_id], self.env.box_geom_id, landing_offset=offset)
             skill.status = SkillStatus.SUCCEEDED if success else SkillStatus.FAILED
             if success:
                 self.completed.add(operation_key(action))

@@ -69,7 +69,7 @@ class BoxSnapshotChecks(unittest.TestCase):
     def test_rejection_and_budget_leave_live_world_unchanged(self):
         snapshot = SimulatorSnapshot.capture(self.executor)
         action = self.executor.replanner.decide(self.executor.env.observe()).action
-        rejected = snapshot.rollout(SkillAction(action.skill, action.target_pose + [0.01, 0.0, 0.0], action.object_id, action.support_id))
+        rejected = snapshot.rollout(SkillAction(action.skill, action.target_pose + [0.50, 0.0, 0.0], action.object_id, action.support_id))
         self.assertIsNone(rejected.transition)
         truncated = snapshot.rollout(action, max_control_steps=1)
         record = json.loads(truncated.transition.to_json())
@@ -79,6 +79,24 @@ class BoxSnapshotChecks(unittest.TestCase):
         self.assertIsNone(record["failure_reason"])
         self.assertIsNone(truncated.next_snapshot)
         np.testing.assert_array_equal(snapshot.integration_state(), SimulatorSnapshot.capture(self.executor).integration_state())
+
+    def test_push_candidate_reaches_controller_without_resetting_physics(self):
+        action = self.executor.replanner.decide(self.executor.env.observe()).action
+        candidate = SkillAction(action.skill, action.target_pose + [0.03, 0.02, 0.0], action.object_id, action.support_id)
+        skill = self.executor._create_skill(candidate)
+        self.assertIsNotNone(skill)
+        skill.reset(candidate)
+        _status, _steps, interrupted = self.executor._execute_skill(candidate, skill, lambda *args: False, None)
+        self.assertTrue(interrupted)
+        np.testing.assert_array_equal(self.executor.skill_backend.push.arm.goal[:2], candidate.target_pose[:2])
+        self.assertEqual(self.executor.env.reset_count, 1)
+        self.assertAlmostEqual(self.executor.env.data.time, self.executor.runtime.control_dt)
+
+    def test_push_candidate_rejects_uncontrolled_heading_and_unsafe_side(self):
+        action = self.executor.replanner.decide(self.executor.env.observe()).action
+        for offset in ([0.0, 0.3, 0.0], [0.0, 0.0, 0.1], [np.nan, 0.0, 0.0]):
+            candidate = SkillAction(action.skill, action.target_pose + offset, action.object_id, action.support_id)
+            self.assertIsNone(self.executor._create_skill(candidate))
 
 
 if __name__ == "__main__":

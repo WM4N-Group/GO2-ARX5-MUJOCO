@@ -75,6 +75,7 @@ def _code_fingerprint() -> str:
         "data/snapshot_io.py", "data/events.py", "passage_scene.py",
         "box_climb_runtime.py", "box_navigation_runtime.py", "box_push_runtime.py",
         "box_support_env.py", "box_support_planner.py", "box_support_control.py",
+        "box_support_geometry.py",
         "runtime/box_support_backend.py", "runtime/skill_backend.py",
     )
     digest = hashlib.sha256()

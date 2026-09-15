@@ -4,6 +4,8 @@
 
 该目录实现世界模型项目前置的 Oracle-first 原型。当前阶段使用 MuJoCo 真值状态，不依赖 RGB-D、VLM 或学习世界模型，用于验证场景定义、结构化技能接口和可达性判断。
 
+新Box后端已支持有界停车、入口和顶面目标，现有候选采集器完成42请求的真实物理分支评估，见 [几何候选记录](../../docs/BOX_SUPPORT_GEOMETRY_CN.md)。这仍是固定布局离线pilot，在线规划尚未使用候选物理评分。
+
 ## 保留的生产原型功能
 
 - GO2-ARX5 Blocked Passage 专用 MuJoCo 场景。

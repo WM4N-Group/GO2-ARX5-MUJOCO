@@ -21,6 +21,7 @@ def box_runtime_provenance():
         "box_navigation_runtime.py", "climb_runtime.py", "locomotion_runtime.py",
         "box_support_control.py",
         "box_support_env.py",
+        "box_support_geometry.py",
         "box_support_planner.py", "runtime/box_support_backend.py", "runtime/skill_backend.py", "runtime/executor.py",
         "data/transition.py", "data/events.py", "data/snapshot.py", "data/snapshot_io.py",
     ))
