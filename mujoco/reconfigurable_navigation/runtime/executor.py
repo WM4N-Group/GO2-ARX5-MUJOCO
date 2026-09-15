@@ -24,6 +24,7 @@ from ..skills import (
 )
 from .replanner import OracleReplanner
 from .safety import SafetyMonitor
+from .skill_backend import SkillExecutionBackend
 
 
 StepCallback = Callable[
@@ -59,9 +60,15 @@ class ReconfigurableExecutor:
         replanner: OracleReplanner | None = None,
         safety: SafetyMonitor | None = None,
         climb_transition_duration: float = 0.5,
+        *,
+        skill_backend: SkillExecutionBackend | None = None,
+        stabilization_duration: float = 3.0,
+        terminal_hold: bool = True,
     ) -> None:
         if climb_transition_duration < 0.0:
             raise ValueError("climb_transition_duration must be non-negative")
+        if not np.isfinite(stabilization_duration) or stabilization_duration < 0.0:
+            raise ValueError("stabilization_duration must be finite and non-negative")
         self.env = env
         self.runtime = runtime
         self.climb_runtime = climb_runtime
@@ -76,6 +83,9 @@ class ReconfigurableExecutor:
         self.replanner = replanner or OracleReplanner(env.push_target)
         self.safety = safety or SafetyMonitor()
         self.active_runtime = SkillType.NAV
+        self.skill_backend = skill_backend
+        self.stabilization_steps = round(stabilization_duration / runtime.control_dt)
+        self.terminal_hold = terminal_hold
         self.climb_transition_steps = round(
             climb_transition_duration / runtime.control_dt
         )
@@ -91,8 +101,8 @@ class ReconfigurableExecutor:
         replans = 0
         skill_failures = 0
 
-        self._event(on_event, "STABILIZE duration=3.00s")
-        for _ in range(round(3.0 / self.runtime.control_dt)):
+        self._event(on_event, f"STABILIZE duration={self.stabilization_steps * self.runtime.control_dt:.2f}s")
+        for _ in range(self.stabilization_steps):
             self.runtime.hold_default()
             if not self._step(on_step, None, None):
                 return self._result(
@@ -124,7 +134,7 @@ class ReconfigurableExecutor:
                 f"REPLAN index={replans} reason={decision.reason} plan={skills or 'NONE'}",
             )
             if decision.terminal:
-                if decision.succeeded:
+                if decision.succeeded and self.terminal_hold:
                     self._activate_runtime(SkillType.NAV)
                     self.runtime.step(
                         np.zeros(3, dtype=np.float32),
@@ -232,11 +242,11 @@ class ReconfigurableExecutor:
         if event_recorder is not None:
             event_recorder.sample(
                 self.env.observe(), self.env.data.time, 0,
-                "preparation" if preparing else "execution",
+                self.skill_backend.initial_stage(action) if self.skill_backend is not None else "preparation" if preparing else "execution",
                 skill.phase.value if isinstance(skill, PushSkill) else None,
             )
 
-        def after_step(stage: str) -> bool:
+        def after_step(stage: str, phase: str | None = None) -> bool:
             nonlocal control_steps
             control_steps += 1
             if event_recorder is None:
@@ -244,9 +254,13 @@ class ReconfigurableExecutor:
             observation = self.env.observe()
             event_recorder.sample(
                 observation, self.env.data.time, control_steps, stage,
-                skill.phase.value if isinstance(skill, PushSkill) else None,
+                phase if phase is not None else skill.phase.value if isinstance(skill, PushSkill) else None,
             )
             return on_step is None or on_step(action, skill, observation)
+
+        if self.skill_backend is not None:
+            self.active_runtime = action.skill
+            return self.skill_backend.execute_skill(action, skill, after_step)
 
         if preparing:
             self._event(
@@ -310,6 +324,8 @@ class ReconfigurableExecutor:
     def _create_skill(self, action: SkillAction | None) -> Skill | None:
         if action is None:
             return None
+        if self.skill_backend is not None:
+            return self.skill_backend.create_skill(action)
         if action.skill == SkillType.NAV:
             return NavigateSkill()
         if action.skill == SkillType.PUSH:

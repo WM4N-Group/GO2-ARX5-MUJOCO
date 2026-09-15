@@ -16,6 +16,8 @@
 
 GO2-ARX5 branch handoff: start with [the current project snapshot](docs/AGENT_HANDOFF_CN.md), [server status](docs/YUANYUE_SERVER_STATUS_CN.md), and [box-skill validation](docs/BOX_SKILL_TRAINING_CN.md). New candidate weights, state datasets and videos are external artifacts, not part of a Git clone. The framework examples below do not replace this branch's pinned environment and reproduction instructions.
 
+The accepted 29/32 moving-support composite now uses the shared executor and N1 transition recording, snapshots, and replay. See [the integration record](docs/BOX_SUPPORT_EXECUTOR_CN.md). The next work uses the frozen skills for geometric candidates, scene-family data, and a privileged-state world model.
+
 **A Reinforcement Learning (RL) framework for legged robots with manipulator arms**
 
 Legged robots with manipulation arms present unique challenges — coordinating locomotion and dexterous manipulation simultaneously. LeggedManip Lab addresses this by providing a unified RL training framework built on Isaac Lab, supporting whole-body locomotion-manipulation policy training and deployment across 7 robot platforms, including Flat and Whole-Body Control (WBC) training modes.

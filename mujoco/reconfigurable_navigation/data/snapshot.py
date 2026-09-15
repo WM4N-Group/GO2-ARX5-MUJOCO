@@ -53,6 +53,9 @@ def _clone_executor(source: ReconfigurableExecutor) -> ReconfigurableExecutor:
     runtimes = [source.runtime]
     if source.climb_runtime is not None:
         runtimes.append(source.climb_runtime)
+    if source.skill_backend is not None:
+        runtimes.extend(source.skill_backend.snapshot_runtimes())
+    runtimes = list({id(runtime): runtime for runtime in runtimes}.values())
     if any(runtime.model is not model or runtime.data is not data for runtime in runtimes):
         raise ValueError("Snapshot runtimes must share the environment physics")
     if model.nplugin:
@@ -67,6 +70,8 @@ def _clone_executor(source: ReconfigurableExecutor) -> ReconfigurableExecutor:
     mujoco.mj_copyData(cloned_data, cloned_model, data)
     memo = {id(model): cloned_model, id(data): cloned_data}
     for runtime in runtimes:
+        if getattr(runtime, "on_step", None) is not None:
+            raise ValueError("Snapshot capture requires a boundary without active runtime callbacks")
         if runtime.policy.training:
             raise ValueError("Snapshot policies must be in evaluation mode")
         tensors = (*runtime.policy.parameters(), *runtime.policy.buffers())

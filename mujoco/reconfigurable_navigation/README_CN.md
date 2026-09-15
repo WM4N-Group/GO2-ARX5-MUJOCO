@@ -1,6 +1,6 @@
 # GO2-ARX5 可重构导航原型
 
-交接范围更新：2026-09-15。当前代码和任务以 [主交接](../../docs/AGENT_HANDOFF_CN.md) 为准，本文主要说明保留的生产Oracle、旧低摩擦通道及低台阶接口。另有独立移动箱高台流程29/32，尚未接入该生产executor；使用 [显式CPU入口](../run_box_support_sequence.py) 与三份非Git策略包复现，详见 [箱体训练记录](../../docs/BOX_SKILL_TRAINING_CN.md)。历史回归成绩不等于本次文档更新重新运行。
+交接范围更新：2026-09-15。当前代码和任务以 [主交接](../../docs/AGENT_HANDOFF_CN.md) 为准，本文主要说明保留的生产Oracle、旧低摩擦通道及低台阶接口。用户已接受移动箱高台组合29/32；该流程通过Box后端接入共享executor和N1快照，使用 [正式CPU入口](../run_box_support_executor.py)，验收与数据见 [集成记录](../../docs/BOX_SUPPORT_EXECUTOR_CN.md)。历史独立流程与训练结果见 [箱体训练记录](../../docs/BOX_SKILL_TRAINING_CN.md)。
 
 该目录实现世界模型项目前置的 Oracle-first 原型。当前阶段使用 MuJoCo 真值状态，不依赖 RGB-D、VLM 或学习世界模型，用于验证场景定义、结构化技能接口和可达性判断。
 

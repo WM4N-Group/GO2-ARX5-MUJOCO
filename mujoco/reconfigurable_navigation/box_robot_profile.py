@@ -15,10 +15,14 @@ def box_runtime_provenance():
     import torch
 
     root = PROFILE_PATH.parents[1]
-    paths = [PROFILE_PATH, root / "robots/go2_arx5/go2_arx5.xml", root / "run_box_support_sequence.py"]
+    paths = [PROFILE_PATH, root / "robots/go2_arx5/go2_arx5.xml", root / "run_box_support_sequence.py", root / "run_box_support_executor.py", root / "check_box_support_executor.py"]
     paths.extend(root / "reconfigurable_navigation" / name for name in (
         "box_robot_profile.py", "box_push_runtime.py", "box_climb_runtime.py",
         "box_navigation_runtime.py", "climb_runtime.py", "locomotion_runtime.py",
+        "box_support_control.py",
+        "box_support_env.py",
+        "box_support_planner.py", "runtime/box_support_backend.py", "runtime/skill_backend.py", "runtime/executor.py",
+        "data/transition.py", "data/events.py", "data/snapshot.py", "data/snapshot_io.py",
     ))
     paths.append(root.parent / "source/LeggedManip_Lab/LeggedManip_Lab/tasks/manager_based/leggedmanip_lab/mdp/box_push_control.py")
     return {
