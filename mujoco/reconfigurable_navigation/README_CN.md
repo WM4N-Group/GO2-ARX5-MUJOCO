@@ -6,6 +6,10 @@
 
 新Box后端已支持有界停车、入口和顶面目标，现有候选采集器完成42请求的真实物理分支评估，见 [几何候选记录](../../docs/BOX_SUPPORT_GEOMETRY_CN.md)。这仍是固定布局离线pilot，在线规划尚未使用候选物理评分。
 
+后续版本还支持参数化六布局及带预算的规则后续评估，见 [场景族与任务标签](../../docs/BOX_SUPPORT_LAYOUTS_CN.md)。在线规划仍为规则Oracle，后续评估只在独立离线分支中执行。
+
+首个离线位姿MLP已经训练，代码在 [world_model](world_model/)，框架与未通过的规划质量对照见 [世界模型基线](../../docs/WORLD_MODEL_BASELINE_CN.md)。目标对象Transformer ensemble尚未实现，当前执行器未使用学习模型选动作。
+
 ## 保留的生产原型功能
 
 - GO2-ARX5 Blocked Passage 专用 MuJoCo 场景。

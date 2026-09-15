@@ -4,7 +4,15 @@
 
 ## 当前快照
 
-executor/快照集成已发布为 `f3112030178e6d3e0d4aacacccce54f09aecf035`，分支 `feature/reconfigurable-navigation-oracle`，GitHub远端hash已核对。本文件同时记录其后完成的有界几何候选；最新发布提交以实际Git历史为准，运行源码以记录中的SHA-256为准。此前324b7a7是交接文档发布，008a795是箱体技能训练代码发布。
+有界几何候选发布基线为 `9c069e44ffd1a8f125b7298314649e8146d3b1ea`，分支 `feature/reconfigurable-navigation-oracle`；此前f311203是executor/快照集成。本文件记录随后完成的参数化布局、后续评估和首个离线世界模型基线，最新发布以实际Git历史为准，运行源码以记录中的SHA-256为准。324b7a7是更早的交接文档发布，008a795是箱体技能训练代码发布。
+
+最新世界模型进度：原方案仍是BEV CNN + Object Transformer + 4-6层Transformer dynamics + 3-5模型ensemble。本轮完成N3的第一步，训练了独立schema `box_support_tabular_v1` 的92维起点输入、两层64单元MLP，预测机器人/箱体位姿增量、耗时、技能成功、非法碰撞和规则后续任务成功。它不是完整目标架构，也没有接入在线控制。框架与结果见 [世界模型基线](WORLD_MODEL_BASELINE_CN.md)。
+
+扩样使用既定六布局和新seed600/601：12回合8成功，保存48个技能起点；240候选为171成功、21物理失败、48拒绝。192条实际执行样本覆盖PUSH48、NAV72、CLIMB72，train/validation/test分别80/64/48。固定seed7训练，验证集选中第15轮，测试只在最后评估；10项模型/数据契约检查通过，模型保存恢复本地零误差，服务器192条预测在rtol1e-5/atol1e-6内复现。
+
+当前模型未达到接管规划要求：测试机器人/箱体位置RMSE为0.218/0.179m，按技能和目标类型的训练统计基线为0.103/0.077m；候选选择实际成功8/12，基线10/12，当前候选集最优11/12。虽然技能成功AUROC为0.959，Brier与位姿/选择结果仍未优于基线。不要根据这一次test反复调参后再称其为未见测试，保持规则Oracle控制。
+
+本轮产物本地 `/home/yuanyue/re-nav/artifacts/world-model-v1-20260915/`，服务器 `/mnt/yuanyue/data/world-model-v1-20260915/`，重点是 `model-seed7/{model.pt,report.json,predictions.jsonl}` 与 `candidates/manifest.json`。本地有JSON和模型，48个完整物理快照只在服务器。低层三份actor保持冻结，世界模型权重不纳入Git。
 
 当前接受的完整流程基线在seed500-531上，本地和服务器均为29/32（90.6%），逐回合结局及原因一致；失败510/525/528均为高台机身接触，PUSH和第一段登箱均32/32。工况是自由5 kg箱体、摩擦0.4、20 cm箱高和40 cm高台，包含NAV对位与顶面定位，只有一次物理初始化、技能切换零物理reset。这是此前独立验证入口的结果，不是任意布局或实机泛化结论。详见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md)。
 
@@ -13,6 +21,12 @@ executor/快照集成已发布为 `f3112030178e6d3e0d4aacacccce54f09aecf035`，�
 f311203集成阶段的数据有10条转换及10个完整快照，覆盖成功509和失败510；十条记录均跨进程零容差重放通过，包含高台失败。当时后端只接受默认目标，候选兼容检查为12请求：3成功、1物理失败、8前置拒绝。该阶段实现、复现与产物见 [移动支撑执行与数据](BOX_SUPPORT_EXECUTOR_CN.md)。
 
 用户要求上传Git后继续推进，本轮已增加停车、接近和落点的有界几何候选，并将请求目标传给真实控制及完成判据。服务器新采集的默认509/510流程仍与原验收完全一致；6个技能起点的42请求得到29成功、7物理失败、6非法请求拒绝。30个非默认几何候选全部实际执行，24成功、6机身接触失败，最终机器人位置均与同一起点原动作不同；6个原动作逐字段重现来源记录。27项相关检查通过，详见 [几何候选与物理数据](BOX_SUPPORT_GEOMETRY_CN.md)。这是固定布局的离线分支pilot，未接入在线候选评分，未训练世界模型。
+
+后续“继续推进”已完成参数化布局与任务标签：`BoxSupportScene` 控制真实位置、尺寸和材质，目标高度从模型读取，场景参数随快照恢复。六布局分为对齐/左偏/右偏三个族，在采集前固定为train/validation/test；seed509完整任务5/6成功，左偏远窄布局PUSH超时。新增默认509/510回归仍与原验收完全一致。
+
+新增有预算的规则后续评估，记录 `continuation.oracle_task_success`、正向可达性证据和包含准备阶段的总仿真耗时。主索引汇总21请求：11次候选技能成功、3次执行失败、7次拒绝；整任务10成功、4失败、7拒绝。已验证同一seed510起点中，两种PUSH都成功，原动作后续高台失败，几何停车候选后续完成任务。预算诊断另有2个后续未知、1拒绝，未混入主数据。39项相关检查通过，七个原动作的整任务结果和代价重现来源回合，详见 [多布局与任务标签](BOX_SUPPORT_LAYOUTS_CN.md)。
+
+本轮产物本地为 `/home/yuanyue/re-nav/artifacts/box-layouts-20260915/`，服务器为 `/mnt/yuanyue/data/box-layouts-20260915/`，入口 `dataset-index.json`。包含六布局、七回合、七个首技能快照，主数据train/validation/test为9/6/6条；快照仅在服务器，报告和JSONL已取回本地。这是小规模管线验证，不是新的独立成功率或世界模型泛化结果。
 
 本轮16份源码已备份同步服务器并逐文件核对hash，十个快照与转换/候选数据在 `/mnt/yuanyue/data/box-executor-integration-20260915/`；服务器从本地快照重放4个代表技能全部通过，容差1e-6。新快照契约本地和服务器各4项通过；未改变服务器Git HEAD或清理其累计改动。
 
@@ -26,7 +40,7 @@ f311203集成阶段的数据有10条转换及10个完整快照，覆盖成功509
 
 原生单策略状态：第一阶段prepared_ground499为32/32、31/32；最终高台gaps399为21/32（1.5cm间隙）、22/32（6cm），仍是diagnostic候选，不能用29/32组合结果冒充高台actor独立通过。高台训练400更新、921.12s已结束；当前无训练需要等待，不要重复启动旧active记录。起步数据只用于独立Isaac训练回合reset，MuJoCo技能切换不改写物理状态。训练seed16-31状态池与原生评估seed200-215状态池分离，导出包保存原始数据及hash；本轮保留原接受权重，未替换生产默认actor/Oracle。
 
-当前下一步：将已有候选扩展到参数化多布局，补充带预算的后续任务可达性和代价评估，形成按场景族划分的真实转移数据，再训练特权状态世界模型并接入候选选择。继续提高低层成功率不再是前置条件；3次高台接触失败保留为已知边界。当前PUSH候选限于原正X推面，不能据此宣称任意推面或布局可用；VLM、RGB-D、JUMP和实机迁移后置。
+当前下一步：诊断MLP相对统计基线的位姿和排序差距，扩展族内样本与对象关系表示，在validation迭代并保留新测试起点；随后推进目标BEV/Object Transformer及ensemble。基线已经训练，不要重复声称世界模型完全未实现，也不能声称已完成世界模型规划。低层29/32继续冻结，PUSH仍限正X推面，VLM、RGB-D、JUMP和实机迁移后置。
 
 ## 历史阶段记录
 
@@ -80,10 +94,10 @@ CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零�
 | 旧生产基线 | NAV-PUSH-NAV、NAV-CLIMB-NAV、清除入口后爬固定台阶；仍保留 |
 | 当前规划方式 | MuJoCo 真值状态 + 规则式 Oracle + 栅格/A*；每次仅执行最新计划的首个技能 |
 | 仍依赖人工配置 | 场景语义、部分推箱目标、平台 entry/landing portal |
-| 世界模型/VLM/视觉 | 尚未实现学习世界模型、VLM proposal 和 RGB-D 推理闭环 |
+| 世界模型/VLM/视觉 | 已训练离线位姿MLP，但未达到规划要求；目标Transformer ensemble、VLM和RGB-D闭环未实现 |
 | 高台任务的真实进度 | 接受组合29/32，已接入共享executor及N1快照，原生高台actor未独立达标 |
 | 当前迁移状态 | 双4090已部署，分卡并行训练和MuJoCo复现完成；DDP未验证 |
-| 下一项开发 | 参数化多布局、后续任务评估、按场景族划分的转移数据及特权状态世界模型 |
+| 下一项开发 | 改进数据和对象关系表示，验证优于统计基线，再推进Transformer ensemble与shadow评估 |
 
 ## 3. 用户已经确认的方向
 
@@ -143,6 +157,7 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 | [run_box_support_executor.py](../mujoco/run_box_support_executor.py) | 冻结技能的正式executor入口，支持N1记录、快照和参考回归 |
 | [BOX_SUPPORT_EXECUTOR_CN.md](BOX_SUPPORT_EXECUTOR_CN.md) | 新执行后端、快照与候选数据的验收及后续边界 |
 | [BOX_SUPPORT_GEOMETRY_CN.md](BOX_SUPPORT_GEOMETRY_CN.md) | 有界几何目标、42请求物理分支pilot及复现 |
+| [BOX_SUPPORT_LAYOUTS_CN.md](BOX_SUPPORT_LAYOUTS_CN.md) | 参数化场景族、规则后续任务标签、21请求主索引及预算诊断 |
 | [run_box_support_sequence.py](../mujoco/run_box_support_sequence.py) | 当前独立移动箱高台流程的统一CPU启动入口 |
 | [check_box_support_sequence.py](../mujoco/check_box_support_sequence.py) | 实际箱面对位、准备、两段CLIMB及逐阶段报告；不等于生产executor |
 | [box_push_runtime.py](../mujoco/reconfigurable_navigation/box_push_runtime.py) | 226维输入、12腿动作、IK机械臂与18维组合动作历史 |

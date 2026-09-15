@@ -8,6 +8,7 @@ import numpy as np
 from .box_push_runtime import BoxPushRuntime
 from .box_robot_profile import apply_box_robot_profile
 from .box_support_control import surface_entry
+from .box_support_scene import BoxSupportScene
 from .env import BlockedPassageEnv
 from .locomotion_runtime import JOINT_NAMES, projected_gravity
 from .representations import Capability, ObjectState, ObjectType, OracleObservation, SkillType
@@ -18,20 +19,27 @@ BOX_ID = 10
 PLATFORM_ID = 20
 
 
-def make_model(height=0.20, mass=5.0, friction=0.4, platform_height=None):
+def make_model(height=0.20, mass=5.0, friction=0.4, platform_height=None, *, scene=None):
+    if scene is not None:
+        height, mass, friction = scene.box_size[2], scene.box_mass, scene.box_friction
+        platform_height = scene.platform_size[2]
     if not all(np.isfinite(value) and value > 0.0 for value in (height, mass, friction)):
         raise ValueError("Physical parameters must be finite and positive")
     spec = mujoco.MjSpec.from_file(str(ROOT / "robots/go2_arx5/go2_arx5.xml"))
     apply_box_robot_profile(spec)
     spec.worldbody.add_light(pos=[0.0, -3.0, 5.0], dir=[0.0, 0.0, -1.0], diffuse=[0.8, 0.8, 0.8], ambient=[0.35, 0.35, 0.35])
     spec.worldbody.add_geom(name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, size=[0.0, 0.0, 0.05], friction=[0.6, 0.0, 0.0], priority=1, condim=3, conaffinity=3)
-    box = spec.worldbody.add_body(name="push_box", pos=[1.10, 0.0, height / 2.0])
+    box_pose = (1.10, 0.0, 0.0) if scene is None else scene.box_pose
+    box_size = np.array([1.2, 1.2, height] if scene is None else scene.box_size)
+    box = spec.worldbody.add_body(name="push_box", pos=[*box_pose[:2], height / 2.0], quat=[np.cos(box_pose[2] / 2.0), 0.0, 0.0, np.sin(box_pose[2] / 2.0)])
     box.add_freejoint(name="push_box_joint")
-    box.add_geom(name="push_box", type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.6, 0.6, height / 2.0], mass=mass, friction=[friction, 0.0, 0.0], priority=2, condim=3, conaffinity=3, rgba=[0.65, 0.3, 0.15, 1.0])
+    box.add_geom(name="push_box", type=mujoco.mjtGeom.mjGEOM_BOX, size=box_size / 2.0, mass=mass, friction=[friction, 0.0, 0.0], priority=2, condim=3, conaffinity=3, rgba=[0.65, 0.3, 0.15, 1.0])
     if platform_height is not None:
         if not np.isfinite(platform_height) or platform_height <= height:
             raise ValueError("Platform must be higher than the box")
-        spec.worldbody.add_geom(name="high_platform", type=mujoco.mjtGeom.mjGEOM_BOX, pos=[3.3, 0.0, platform_height / 2.0], size=[1.0, 0.8, platform_height / 2.0], friction=[0.6, 0.0, 0.0], priority=1, condim=3, conaffinity=3, rgba=[0.25, 0.55, 0.72, 1.0])
+        platform_pose = (3.3, 0.0, 0.0) if scene is None else scene.platform_pose
+        platform_size = np.array([2.0, 1.6, platform_height] if scene is None else scene.platform_size)
+        spec.worldbody.add_geom(name="high_platform", type=mujoco.mjtGeom.mjGEOM_BOX, pos=[*platform_pose[:2], platform_height / 2.0], size=platform_size / 2.0, friction=[0.6, 0.0, 0.0], priority=1, condim=3, conaffinity=3, rgba=[0.25, 0.55, 0.72, 1.0])
     model = spec.compile()
     for name in JOINT_NAMES:
         joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
@@ -42,14 +50,17 @@ def make_model(height=0.20, mass=5.0, friction=0.4, platform_height=None):
     return model
 
 
-def make_episode(policy, seed, platform_height=None):
-    model = make_model(platform_height=platform_height)
+def make_episode(policy, seed, platform_height=None, *, scene=None):
+    model = make_model(platform_height=platform_height, scene=scene)
     data = mujoco.MjData(model)
     box = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "push_box")
     runtime = BoxPushRuntime(policy, model=model, data=data, box_geom=box, goal=np.array([1.70, 0.0, 0.10]))
     generator = np.random.default_rng(seed)
     data.qpos[:3] = [*generator.uniform(-0.03, 0.03, size=2), 0.33]
     yaw = generator.uniform(-0.04, 0.04)
+    if scene is not None:
+        data.qpos[:2] += scene.robot_pose[:2]
+        yaw += scene.robot_pose[2]
     data.qpos[3:7] = [np.cos(yaw / 2.0), 0.0, 0.0, np.sin(yaw / 2.0)]
     joint_ids = model.dof_jntid[runtime.joint_dof_adr]
     midpoint = model.jnt_range[joint_ids].mean(axis=1)
@@ -58,6 +69,8 @@ def make_episode(policy, seed, platform_height=None):
     box_qpos = int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "push_box_joint")])
     data.qpos[box_qpos:box_qpos + 2] += generator.uniform(-0.03, 0.03, 2)
     yaw = generator.uniform(-0.04, 0.04)
+    if scene is not None:
+        yaw += scene.box_pose[2]
     data.qpos[box_qpos + 3:box_qpos + 7] = [np.cos(yaw / 2.0), 0.0, 0.0, np.sin(yaw / 2.0)]
     mujoco.mj_forward(model, data)
     start = data.geom_xpos[box].copy()
@@ -67,7 +80,7 @@ def make_episode(policy, seed, platform_height=None):
 
 
 class BoxSupportEnv(BlockedPassageEnv):
-    def __init__(self, runtime, seed):
+    def __init__(self, runtime, seed, scene=None):
         self.model, self.data = runtime.model, runtime.data
         self.push_runtime = runtime
         self.seed = seed
@@ -90,7 +103,9 @@ class BoxSupportEnv(BlockedPassageEnv):
         edge = platform[0] - self.model.geom_size[self.platform_geom_id, 0]
         self.placement_target = np.array([edge - runtime.arm.box_size[0] / 2.0, platform[1], runtime.arm.goal[2]])
         self.push_goal = self.placement_target + [0.02, 0.0, 0.0]
-        self.scene_family = "box_support_nominal"
+        self.scene = scene or BoxSupportScene()
+        self.scene_family = "box_support_nominal" if scene is None else scene.scene_family
+        self.dataset_split = "integration_regression_unsplit" if scene is None else scene.dataset_split
 
     @property
     def push_target(self):
@@ -142,5 +157,6 @@ class BoxSupportEnv(BlockedPassageEnv):
                 climb_entry_pose=np.array([entry[0], entry[1], yaw]),
                 climb_landing_pose=np.array([center[0], center[1], center[2] + size[2] / 2.0 + 0.28, yaw]),
             ))
-        goal = np.array([*self.data.geom_xpos[self.platform_geom_id, :2], 0.40, 1.0], dtype=np.float32)
+        platform_top = self.data.geom_xpos[self.platform_geom_id, 2] + self.model.geom_size[self.platform_geom_id, 2]
+        goal = np.array([*self.data.geom_xpos[self.platform_geom_id, :2], platform_top, 1.0], dtype=np.float32)
         return OracleObservation(robot, goal, tuple(objects), self.capability, valid, tuple(sorted(contacts)), (BOX_ID,) if hand["valid"] else (), tuple(sorted(body_contacts)), bool(illegal))

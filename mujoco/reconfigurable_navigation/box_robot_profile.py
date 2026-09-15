@@ -22,8 +22,9 @@ def box_runtime_provenance():
         "box_support_control.py",
         "box_support_env.py",
         "box_support_geometry.py",
+        "box_support_scene.py",
         "box_support_planner.py", "runtime/box_support_backend.py", "runtime/skill_backend.py", "runtime/executor.py",
-        "data/transition.py", "data/events.py", "data/snapshot.py", "data/snapshot_io.py",
+        "data/transition.py", "data/events.py", "data/snapshot.py", "data/snapshot_io.py", "data/suffix.py",
     ))
     paths.append(root.parent / "source/LeggedManip_Lab/LeggedManip_Lab/tasks/manager_based/leggedmanip_lab/mdp/box_push_control.py")
     return {

@@ -2,6 +2,8 @@
 
 日期：2026-09-15。先将executor/N1集成发布为 `f3112030178e6d3e0d4aacacccce54f09aecf035`，随后利用已接受的三份策略实现本页功能。29/32组合技能基线继续冻结，本轮没有训练或替换actor。最新发布提交以Git历史为准，实验源码由报告和快照中的hash绑定。
 
+本页的固定布局阶段已发布为9c069e4，42请求结果保留为历史证据。后续参数化布局、场景族分组和可选规则后续评估见 [多布局与任务标签](BOX_SUPPORT_LAYOUTS_CN.md)。
+
 ## 1. 已实现范围
 
 [box_support_geometry.py](../mujoco/reconfigurable_navigation/box_support_geometry.py) 给出当前控制器可接受的目标区域，[BoxSupportBackend](../mujoco/reconfigurable_navigation/runtime/box_support_backend.py) 将请求交给真实控制函数。几何边界是此版本的请求约束，物理结果仍由独立MuJoCo分支执行得到。
@@ -22,7 +24,7 @@ PUSH请求直接进入Hybrid控制器的目标，名义值保留原有0.02m控�
 
 [collect_skill_candidates.py](../mujoco/collect_skill_candidates.py) 复用N1的独立快照rollout。每个候选携带实际目标、来源快照、物理转换、成功/失败/拒绝、事件及耗时。几何候选改变了运行代码指纹，旧f311203快照需要原版本；本轮重新生成了匹配新代码的快照。
 
-技能成功是单次动作的标签。后续任务可达性和完整任务价值尚未评估，相应标签仍为unknown，不能把短距离停车成功直接解释为后续登高台一定可行。
+技能成功是单次动作的标签。本页的42请求未启用后续任务评估，相应标签仍为unknown，不能把短距离停车成功直接解释为后续登高台一定可行。后续版本通过显式预算另行记录整任务结果和代价，不回填旧数据。
 
 ## 3. 验证结果
 
@@ -75,6 +77,6 @@ export ATEN_CPU_CAPABILITY=avx2 MKL_CBWR=AVX2 DNNL_MAX_CPU_ISA=AVX2 OMP_NUM_THRE
 
 ## 5. 下一项
 
-将当前候选用于参数化多布局，并增加带明确预算的后续任务评估和完整代价标签；所有来自同一场景族、回合与快照的分支应分组，避免跨训练/测试泄漏。之后建立技能级特权状态世界模型，再接入在线候选选择。
+参数化多布局和带预算的后续标签已实现，见新记录。下一项是扩大按场景族分组的数据，建立技能级特权状态世界模型，再接入在线候选选择。
 
 在线规划当前仍是规则Oracle，没有使用此次候选的物理评分来选动作。继续提高低层成功率不再是前置条件，VLM、RGB-D、JUMP和实机迁移后置。

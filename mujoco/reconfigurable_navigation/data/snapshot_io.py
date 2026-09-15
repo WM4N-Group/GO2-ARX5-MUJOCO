@@ -27,6 +27,7 @@ def _registry() -> dict[str, type]:
     from ..box_push_runtime import BoxPushArmController, BoxPushRuntime
     from ..box_support_env import BoxSupportEnv
     from ..box_support_planner import BoxSupportPlanner
+    from ..box_support_scene import BoxSupportScene
     from ..climb_runtime import ClimbRuntime
     from ..complex_course_env import ComplexCourseEnv
     from ..env import BlockedPassageEnv
@@ -46,7 +47,7 @@ def _registry() -> dict[str, type]:
         SkillType, ReconfigurableExecutor, OracleReplanner, SafetyConfig, SafetyMonitor,
         ParameterizedPassageEnv, PassageScene,
         BoxClimbRuntime, BoxNavigationRuntime, BoxPushArmController, BoxPushRuntime,
-        BoxSupportEnv, BoxSupportPlanner, BoxSupportBackend, SimpleNamespace,
+        BoxSupportEnv, BoxSupportPlanner, BoxSupportBackend, BoxSupportScene, SimpleNamespace,
     )
     return {kind.__name__: kind for kind in classes}
 
@@ -76,6 +77,8 @@ def _code_fingerprint() -> str:
         "box_climb_runtime.py", "box_navigation_runtime.py", "box_push_runtime.py",
         "box_support_env.py", "box_support_planner.py", "box_support_control.py",
         "box_support_geometry.py",
+        "box_support_scene.py",
+        "data/suffix.py",
         "runtime/box_support_backend.py", "runtime/skill_backend.py",
     )
     digest = hashlib.sha256()

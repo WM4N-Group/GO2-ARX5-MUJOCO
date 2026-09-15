@@ -17,8 +17,10 @@ from zipfile import ZipFile
 import numpy as np
 import torch
 
-from reconfigurable_navigation.data.candidates import build_candidates, candidate_payload, candidate_scene_metadata
+from reconfigurable_navigation.box_support_scene import BOX_SUPPORT_FAMILIES
+from reconfigurable_navigation.data.candidates import build_candidates, candidate_payload, candidate_scene_metadata, candidate_partition_metadata
 from reconfigurable_navigation.data.snapshot import SimulatorSnapshot
+from reconfigurable_navigation.data.suffix import candidate_continuation
 from reconfigurable_navigation.representations import SkillAction, SkillType
 
 
@@ -41,11 +43,13 @@ def collect_snapshot(job: dict) -> list[dict]:
     candidate_seed = int(np.random.SeedSequence([job["seed"], job["record_index"]]).generate_state(1)[0])
     output = []
     context = candidate_scene_metadata(source_record)
-    observation = snapshot.fork().env.observe() if context["scene_family"] == "box_support_nominal" else None
+    observation = snapshot.fork().env.observe() if context["scene_family"] in BOX_SUPPORT_FAMILIES else None
     for candidate_index, candidate in enumerate(build_candidates(reference, count=job["count"], seed=candidate_seed, observation=observation, scene_family=context["scene_family"])):
         started = time.perf_counter()
         result = snapshot.rollout(candidate.action, max_control_steps=job["max_control_steps"])
         payload = candidate_payload(candidate, result)
+        if job.get("evaluate_suffix", False):
+            payload["continuation"] = candidate_continuation(result, max_control_steps=job["suffix_control_steps"], max_skills=job["suffix_max_skills"])
         identifier = f"{job['source_sha256']}:{job['record_index']}:{candidate_seed}:{candidate_index}"
         payload.update(
             candidate_id=hashlib.sha256(identifier.encode()).hexdigest(),
@@ -75,12 +79,17 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--max-control-steps", type=int, default=5000)
+    parser.add_argument("--evaluate-suffix", action="store_true")
+    parser.add_argument("--suffix-control-steps", type=int, default=3000)
+    parser.add_argument("--suffix-max-skills", type=int, default=8)
     parser.add_argument("--trusted", action="store_true")
     args = parser.parse_args()
     if not args.trusted:
         parser.error("Only use self-generated trusted snapshots; --trusted is required")
     if args.candidates_per_snapshot < 3 or args.seed < 0 or args.workers < 1 or args.max_control_steps < 1:
         parser.error("Invalid candidate count, seed, worker count, or control budget")
+    if min(args.suffix_control_steps, args.suffix_max_skills) < 0:
+        parser.error("Suffix budgets must be nonnegative")
     if args.indices is not None and (min(args.indices) < 0 or len(set(args.indices)) != len(args.indices)):
         parser.error("Record indices must be unique and non-negative")
     source_path = args.record_jsonl.resolve()
@@ -94,6 +103,7 @@ def main() -> None:
         if record["schema_version"] not in (1, 2) or "snapshot_file" not in record["metadata"]:
             parser.error("Every selected record must reference a compatible snapshot")
         candidate_scene_metadata(record)
+    partition = candidate_partition_metadata([records[index] for index in indices])
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
     source_sha256 = hashlib.sha256(raw_source).hexdigest()
@@ -109,14 +119,16 @@ def main() -> None:
         "workers": args.workers,
         "torch_threads_per_worker": 1,
         "scene_families": sorted({candidate_scene_metadata(records[index])["scene_family"] for index in indices}),
-        "split": "pilot_unsplit",
+        **partition,
         "candidate_strategy": "bounded_box_support_geometry_or_local_perturbations",
-        "limitations": ["box-support geometry is limited to the frozen positive-X push face and nearby support targets; other scenes use local perturbations", "no reachability or support-stability labels", "no held-out split; group related layouts and counterfactuals before training", "events sampled at control boundaries; substep contacts may be missed"],
+        "continuation_budget": {"max_control_steps": args.suffix_control_steps, "max_skills": args.suffix_max_skills} if args.evaluate_suffix else None,
+        "limitations": ["box-support geometry is limited to the frozen positive-X push face and nearby support targets; other scenes use local perturbations", "optional rule suffix supplies positive reachability evidence only; no support-stability supervision", "small pilot; family grouping alone does not establish generalization", "events sampled at control boundaries; substep contacts may be missed"],
     }
     repository = Path(__file__).resolve().parents[1]
     manifest["git_commit"] = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
     manifest["collector_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     manifest["candidate_generator_sha256"] = hashlib.sha256((repository / "mujoco/reconfigurable_navigation/data/candidates.py").read_bytes()).hexdigest()
+    manifest["suffix_evaluator_sha256"] = hashlib.sha256((repository / "mujoco/reconfigurable_navigation/data/suffix.py").read_bytes()).hexdigest() if args.evaluate_suffix else None
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, allow_nan=False) + "\n")
     jobs = [
@@ -125,6 +137,7 @@ def main() -> None:
             "source_path": str(source_path), "source_sha256": source_sha256,
             "output_dir": str(output_dir), "count": args.candidates_per_snapshot,
             "seed": args.seed, "max_control_steps": args.max_control_steps,
+            "evaluate_suffix": args.evaluate_suffix, "suffix_control_steps": args.suffix_control_steps, "suffix_max_skills": args.suffix_max_skills,
         }
         for index in indices
     ]
@@ -132,6 +145,7 @@ def main() -> None:
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
     totals = Counter()
+    continuation_totals = Counter()
     started = time.perf_counter()
     partial = output_dir / "candidates.partial.jsonl"
     with ProcessPoolExecutor(max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")) as pool:
@@ -140,6 +154,10 @@ def main() -> None:
                 for payload in payloads:
                     output.write(json.dumps(payload, allow_nan=False) + "\n")
                     totals[payload["outcome"]] += 1
+                    if args.evaluate_suffix:
+                        value = payload["continuation"]["oracle_task_success"]
+                        category = "rejected" if not payload["executed"] else "unknown" if value is None else "succeeded" if value else "failed"
+                        continuation_totals[category] += 1
                 output.flush()
                 print(f"COLLECTED source_index={source_index} count={len(payloads)} totals={dict(totals)}", flush=True)
     completed = output_dir / "candidates.jsonl"
@@ -148,6 +166,7 @@ def main() -> None:
         complete=True,
         records=sum(totals.values()),
         outcomes=dict(totals),
+        continuation_outcomes=dict(continuation_totals) if args.evaluate_suffix else None,
         executed=sum(count for outcome, count in totals.items() if outcome != "rejected"),
         elapsed_wall_seconds=time.perf_counter() - started,
         candidates_sha256=hashlib.sha256(completed.read_bytes()).hexdigest(),

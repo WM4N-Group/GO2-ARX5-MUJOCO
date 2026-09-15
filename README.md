@@ -18,6 +18,8 @@ GO2-ARX5 branch handoff: start with [the current project snapshot](docs/AGENT_HA
 
 The accepted 29/32 moving-support composite now uses the shared executor and N1 transition recording, snapshots, and replay. See [the integration record](docs/BOX_SUPPORT_EXECUTOR_CN.md). Bounded parking, approach, and landing candidates now have [physical branch evaluation](docs/BOX_SUPPORT_GEOMETRY_CN.md). Next are multi-layout scene-family data and a privileged-state world model using the frozen skills.
 
+Parameterized layouts, family-grouped data, and budgeted rule-policy task labels are available in [the layout pilot](docs/BOX_SUPPORT_LAYOUTS_CN.md). A first offline pose-transition MLP has now been trained; see [the target framework and baseline](docs/WORLD_MODEL_BASELINE_CN.md). Its test pose accuracy and candidate selection did not beat the conditional baseline, so the rule planner remains in control.
+
 **A Reinforcement Learning (RL) framework for legged robots with manipulator arms**
 
 Legged robots with manipulation arms present unique challenges — coordinating locomotion and dexterous manipulation simultaneously. LeggedManip Lab addresses this by providing a unified RL training framework built on Isaac Lab, supporting whole-body locomotion-manipulation policy training and deployment across 7 robot platforms, including Flat and Whole-Body Control (WBC) training modes.

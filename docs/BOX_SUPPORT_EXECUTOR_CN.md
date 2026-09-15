@@ -4,6 +4,8 @@
 
 本页的集成阶段已发布为f311203。其后有界几何目标和42请求物理分支pilot已完成，最新范围见 [几何候选记录](BOX_SUPPORT_GEOMETRY_CN.md)；下表保留f311203阶段的验证结果，旧归档仍要求原代码指纹。
 
+参数化场景的 `--scene-json`、`--scene-suite`、首技能快照和有预算的规则后续评估已在后续版本实现，详见 [多布局与任务标签](BOX_SUPPORT_LAYOUTS_CN.md)。
+
 ## 1. 执行范围
 
 [run_box_support_executor.py](../mujoco/run_box_support_executor.py) 使用统一AVX2数值入口，创建 [BoxSupportEnv](../mujoco/reconfigurable_navigation/box_support_env.py)、[BoxSupportPlanner](../mujoco/reconfigurable_navigation/box_support_planner.py) 和共享 [ReconfigurableExecutor](../mujoco/reconfigurable_navigation/runtime/executor.py)。

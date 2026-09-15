@@ -9,6 +9,7 @@ import json
 import numpy as np
 
 from ..representations import SkillAction, SkillType
+from ..box_support_scene import BOX_SUPPORT_FAMILIES
 from .events import EVENT_KINDS
 from .snapshot import SkillReplay
 
@@ -26,8 +27,28 @@ def candidate_scene_metadata(record: dict) -> dict:
         family = "complex_course_fixed_layout"
     if not isinstance(family, str) or not family:
         raise ValueError("Source record must identify its scene family")
-    fields = ("scene_id", "scene_parameters", "sweep_case", "sweep_group_id", "capability_profile_id", "capability")
+    fields = ("scene_id", "scene_parameters", "scene_case", "dataset_split", "split_group_id", "sweep_case", "sweep_group_id", "capability_profile_id", "capability")
     return {"scene_family": family, **{name: deepcopy(metadata[name]) for name in fields if name in metadata}}
+
+
+def candidate_partition_metadata(records):
+    assignments = {}
+    grouped = [record["metadata"].get("dataset_split") is not None for record in records]
+    if not any(grouped):
+        return {"split": "pilot_unsplit", "family_splits": {}}
+    if not all(grouped):
+        raise ValueError("Cannot mix grouped and unpartitioned source records")
+    group_splits = {}
+    for record in records:
+        metadata = candidate_scene_metadata(record)
+        split = metadata["dataset_split"]
+        if split not in ("train", "validation", "test"):
+            raise ValueError("Unsupported dataset split")
+        family = metadata["scene_family"]
+        group = metadata.get("split_group_id", family)
+        if assignments.setdefault(family, split) != split or group_splits.setdefault(group, split) != split:
+            raise ValueError("A scene family or source group crosses dataset splits")
+    return {"split": "scene_family_v1", "family_splits": assignments}
 
 
 def build_candidates(action: SkillAction, *, count: int, seed: int, observation=None, scene_family: str | None = None) -> tuple[SkillCandidate, ...]:
@@ -38,7 +59,7 @@ def build_candidates(action: SkillAction, *, count: int, seed: int, observation=
         raise ValueError("Candidate collection only supports executable skills")
     if action.target_pose.shape != (expected_size,) or not np.isfinite(action.target_pose).all():
         raise ValueError("Reference action must be finite with the expected target shape")
-    if scene_family == "box_support_nominal":
+    if scene_family in BOX_SUPPORT_FAMILIES:
         if observation is None:
             raise ValueError("Box-support candidates require snapshot observations")
         return _box_support_candidates(action, observation, count=count, seed=seed)

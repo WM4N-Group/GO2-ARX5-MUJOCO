@@ -118,7 +118,8 @@ class BoxSupportBackend:
                         self.climb.inherit_actuator_state(self.active_physics)
                     bind(self.climb)
                     raised = action.support_id == PLATFORM_ID
-                    success = perform("POSITION_PLATFORM" if raised else "POSITION_CLIMB", "execution", position_for_climb, self.climb, self.env.object_geoms[action.support_id], support_height=0.20 if raised else 0.0, blend_seconds=0.5 if raised else 0.0, entry_offset=offset)
+                    box_top = self.env.data.geom_xpos[self.env.box_geom_id, 2] + self.env.model.geom_size[self.env.box_geom_id, 2]
+                    success = perform("POSITION_PLATFORM" if raised else "POSITION_CLIMB", "execution", position_for_climb, self.climb, self.env.object_geoms[action.support_id], support_height=box_top if raised else 0.0, blend_seconds=0.5 if raised else 0.0, entry_offset=offset)
                 else:
                     raised = action.support_id == PLATFORM_ID
                     if raised:
@@ -143,9 +144,9 @@ class BoxSupportBackend:
                 runtime.on_step = previous
 
 
-def make_box_support_executor(push_policy, climb_policy, platform_policy, seed):
-    push, _start = make_episode(push_policy, seed, platform_height=0.40)
-    env = BoxSupportEnv(push, seed)
+def make_box_support_executor(push_policy, climb_policy, platform_policy, seed, *, scene=None):
+    push, _start = make_episode(push_policy, seed, platform_height=0.40, scene=scene)
+    env = BoxSupportEnv(push, seed, scene)
     backend = BoxSupportBackend(env, climb_policy, platform_policy)
     navigation = BoxNavigationRuntime(push)
     executor = ReconfigurableExecutor(

@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from reconfigurable_navigation.data.snapshot import SimulatorSnapshot
+from reconfigurable_navigation.box_support_scene import BoxSupportScene
 from reconfigurable_navigation.representations import SkillAction
 from reconfigurable_navigation.runtime.box_support_backend import make_box_support_executor
 
@@ -97,6 +98,23 @@ class BoxSnapshotChecks(unittest.TestCase):
         for offset in ([0.0, 0.3, 0.0], [0.0, 0.0, 0.1], [np.nan, 0.0, 0.0]):
             candidate = SkillAction(action.skill, action.target_pose + offset, action.object_id, action.support_id)
             self.assertIsNone(self.executor._create_skill(candidate))
+
+    def test_parameterized_scene_survives_archive_with_truth_and_grouping(self):
+        scene = BoxSupportScene(robot_pose=(0.1, 0.04, 0.0), box_pose=(1.2, 0.04, 0.02), box_size=(1.2, 1.2, 0.18), platform_pose=(3.4, 0.1, 0.0), platform_size=(2.0, 1.5, 0.38))
+        executor = make_box_support_executor(*self.policies, seed=500, scene=scene)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scene.snapshot"
+            snapshot = SimulatorSnapshot.capture(executor)
+            snapshot.save(path)
+            restored = SimulatorSnapshot.load(path, trusted=True).fork()
+            self.assertEqual(restored.env.scene, scene)
+            self.assertEqual(restored.env.scene.scene_id, scene.scene_id)
+            self.assertEqual(restored.env.dataset_split, "validation")
+            self.assertEqual(restored.env.scene_family, "box_support_left_offset")
+            self.assertAlmostEqual(restored.env.observe().goal[2], 0.38)
+            self.assertEqual(restored.env.reset_count, 1)
+            np.testing.assert_array_equal(restored.env.data.qpos, executor.env.data.qpos)
+            np.testing.assert_array_equal(restored.env.data.geom_xpos, executor.env.data.geom_xpos)
 
 
 if __name__ == "__main__":
