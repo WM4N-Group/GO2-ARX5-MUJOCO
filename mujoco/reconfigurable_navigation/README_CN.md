@@ -1,8 +1,10 @@
 # GO2-ARX5 可重构导航原型
 
+交接范围更新：2026-09-15。当前代码和任务以 [主交接](../../docs/AGENT_HANDOFF_CN.md) 为准，本文主要说明保留的生产Oracle、旧低摩擦通道及低台阶接口。另有独立移动箱高台流程29/32，尚未接入该生产executor；使用 [显式CPU入口](../run_box_support_sequence.py) 与三份非Git策略包复现，详见 [箱体训练记录](../../docs/BOX_SKILL_TRAINING_CN.md)。历史回归成绩不等于本次文档更新重新运行。
+
 该目录实现世界模型项目前置的 Oracle-first 原型。当前阶段使用 MuJoCo 真值状态，不依赖 RGB-D、VLM 或学习世界模型，用于验证场景定义、结构化技能接口和可达性判断。
 
-## 当前功能
+## 保留的生产原型功能
 
 - GO2-ARX5 Blocked Passage 专用 MuJoCo 场景。
 - 带自由关节、质量和摩擦的动态箱体。
@@ -18,16 +20,16 @@
 
 ## 运行自检
 
-使用安装了 MuJoCo 的 `leggedmanip` 环境：
+先激活已安装的MuJoCo专用环境，并在仓库根目录执行下列命令。本地环境为 `/home/yuanyue/re-nav/.envs/go2-arx5-nav`，服务器为 `/mnt/yuanyue/envs/go2-mujoco`；未激活时可使用对应解释器完整路径或Micromamba `run -p`。不要再假定存在旧名为 `leggedmanip` 的Conda环境，也不要在Isaac环境里替换CPU版PyTorch。
 
 ```bash
-conda run -n leggedmanip python mujoco/check_reconfigurable_navigation.py
+python mujoco/check_reconfigurable_navigation.py
 ```
 
 指定随机场景数量：
 
 ```bash
-conda run -n leggedmanip python mujoco/check_reconfigurable_navigation.py --seeds 500
+python mujoco/check_reconfigurable_navigation.py --seeds 500
 ```
 
 检查内容包括：
@@ -44,14 +46,14 @@ conda run -n leggedmanip python mujoco/check_reconfigurable_navigation.py --seed
 循环显示随机场景：
 
 ```bash
-conda run -n leggedmanip python mujoco/visualize_reconfigurable_navigation.py
+python mujoco/visualize_reconfigurable_navigation.py
 ```
 
 只播放一次，或提高动画速度：
 
 ```bash
-conda run -n leggedmanip python mujoco/visualize_reconfigurable_navigation.py --once
-conda run -n leggedmanip python mujoco/visualize_reconfigurable_navigation.py --speed 2
+python mujoco/visualize_reconfigurable_navigation.py --once
+python mujoco/visualize_reconfigurable_navigation.py --speed 2
 ```
 
 Viewer 将依次显示机器人接近箱体、将橙色箱体推出阻挡区域、重新规划并到达绿色目标点。终端同步打印当前规划和执行阶段。关闭 Viewer 窗口即可停止循环。
@@ -63,20 +65,19 @@ Viewer 将依次显示机器人接近箱体、将橙色箱体推出阻挡区域�
 以下入口不再修改机器人基座位姿。它构造 210 维历史观测，运行现有 `210 -> 18` TorchScript 策略，通过 PD 力矩控制和 `mujoco.mj_step()` 产生真实步态：
 
 ```bash
-conda run -n leggedmanip python mujoco/visualize_policy_navigation.py
+python mujoco/visualize_policy_navigation.py
 ```
 
 无 Viewer 快速诊断：
 
 ```bash
-conda run -n leggedmanip python mujoco/visualize_policy_navigation.py \
-  --headless --no-realtime
+python mujoco/visualize_policy_navigation.py --headless --no-realtime
 ```
 
 批量运行随机场景回归，并按 NAV 成功率门槛返回退出码：
 
 ```bash
-conda run -n leggedmanip python mujoco/evaluate_policy_navigation.py
+python mujoco/evaluate_policy_navigation.py
 ```
 
 当前默认部署策略与上游 `zzzJie-Robot/LeggedManip_Lab` 发布的 GO2-ARX5 `policy.pt` 逐字节一致。运行时保持上游 Sim-to-Sim 契约，包括 210 维三帧历史观测、Isaac/MuJoCo 关节映射、动作范围、PD 控制和启动稳定阶段。目标点 NAV 已在本地通过 100 个、远端通过 20 个随机场景回归，成功率均为 `100%`，满足设计方案中 `NAV >= 95%` 的验收线。
@@ -86,21 +87,19 @@ conda run -n leggedmanip python mujoco/evaluate_policy_navigation.py
 以下入口执行完整的真实动力学 `NAV -> PUSH -> NAV -> STOP`。机器人和箱体位姿不由演示器直接修改；GO2-ARX5 策略通过 PD 力矩和 `mujoco.mj_step()` 产生运动，PUSH 必须先检测到 ARX5 指尖接触才进入推动阶段：
 
 ```bash
-conda run -n leggedmanip python mujoco/visualize_policy_reconfigurable_navigation.py
+python mujoco/visualize_policy_reconfigurable_navigation.py
 ```
 
 无 Viewer 快速运行：
 
 ```bash
-conda run -n leggedmanip python \
-  mujoco/visualize_policy_reconfigurable_navigation.py \
-  --headless --no-realtime
+python mujoco/visualize_policy_reconfigurable_navigation.py --headless --no-realtime
 ```
 
 批量回归：
 
 ```bash
-conda run -n leggedmanip python mujoco/check_push_skill.py --seeds 20
+python mujoco/check_push_skill.py --seeds 20
 ```
 
 当前固定 MVP 分布在本地通过 `20/20`、远端通过 `5/5` 完整任务回归。每个成功 episode 都包含指尖接触、物理箱体位移、重构后路径可达和最终 NAV 到达，且没有机身接触或非法碰撞。机械臂与箱体的最大接触穿透为 `3.9-7.0 mm`，低于 `10 mm` 验收上限。PUSH 状态机依次执行 `ALIGN -> CONTACT -> PUSH -> VERIFY -> RETREAT`。统一 executor 每次只执行最新计划的首个技能；典型 episode 产生 4 次重规划：`NAV -> PUSH -> NAV -> STOP`。
@@ -110,19 +109,13 @@ conda run -n leggedmanip python mujoco/check_push_skill.py --seeds 20
 独立 CLIMB Viewer：
 
 ```bash
-/home/yuanyue/re-nav/.tools/micromamba run \
-  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
-  python mujoco/visualize_climb_policy.py \
-  --policy mujoco/deploy/policy/go2_arx5/climb/policy_iter1499.pt \
-  --duration 20
+python mujoco/visualize_climb_policy.py --policy mujoco/deploy/policy/go2_arx5/climb/policy_iter1499.pt --duration 20
 ```
 
 通过真实 executor 检查 `NAV -> CLIMB -> NAV`：
 
 ```bash
-/home/yuanyue/re-nav/.tools/micromamba run \
-  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
-  python mujoco/check_climb_skill_switching.py --seeds 10
+python mujoco/check_climb_skill_switching.py --seeds 10
 ```
 
 当前回归为 `10/10`。每个 episode 只调用一次物理 reset；技能切换仅初始化 actor 内部 history、last action 和 delayed target buffer。receding-horizon executor 可以追加连续同类 NAV 修正，但压缩后的阶段必须是 `NAV -> CLIMB -> NAV`，且每条技能记录都成功。
@@ -138,17 +131,13 @@ NAV -> PUSH -> NAV -> CLIMB -> NAV -> STOP
 真实物理批量验收：
 
 ```bash
-/home/yuanyue/re-nav/.tools/micromamba run \
-  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
-  python mujoco/check_complex_course.py --seeds 10
+python mujoco/check_complex_course.py --seeds 10
 ```
 
 可视化同一执行路径：
 
 ```bash
-/home/yuanyue/re-nav/.tools/micromamba run \
-  -p /home/yuanyue/re-nav/.envs/go2-arx5-nav \
-  python mujoco/check_complex_course.py --seeds 1 --visualize
+python mujoco/check_complex_course.py --seeds 1 --visualize
 ```
 
 当前复杂课程通过 `10/10`。每个 episode 都有 6 次逐技能重规划、一次物理 reset、真实指尖推动、零机身接触、零非法碰撞，并最终在顶层平台到达目标。NAV 切换到 CLIMB 前有显式 `0.5 s` 默认姿态准备阶段，避免机械臂遗留姿态污染 CLIMB 启动状态。
@@ -227,6 +216,6 @@ python mujoco/collect_skill_candidates.py --record-jsonl logs/passage-sweep-new/
 | `blocked_passage.xml` | Blocked Passage 场景 |
 | `complex_course.xml` | 狭窄通道 PUSH 和旋转楼梯 CLIMB 组合场景 |
 
-## 当前边界
+## 旧生产原型边界
 
 运动学 Oracle 动画仍使用 `set_box_pose()` 展示反事实，但真实物理入口和回归不调用它。当前 PUSH 使用 ARX5 各 link 的 mesh convex hull 防止穿模，并将任何机身或腿部接触箱体视为失败。5 kg 箱体被明确建模为高优先级、摩擦系数 `0.005` 的脚轮箱；它不代表当前策略能用机械臂推动普通高摩擦 5 kg 箱体。PLATFORM 当前依赖场景提供显式 entry/landing portal，尚未从任意网格自动提取；DelayedPD 仍采用已验证的固定 delay profile。当前可执行技能是 NAV、PUSH、CLIMB；JUMP 只有枚举和设计文档占位，尚无 actor、runtime 或 `JumpSkill`。恢复站立、接触重建和更宽参数随机化仍属于后续工作。

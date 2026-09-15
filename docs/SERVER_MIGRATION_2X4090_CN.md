@@ -1,10 +1,10 @@
 # GO2-ARX5-MUJOCO 双 RTX 4090 服务器迁移指南
 
-更新日期：2026-09-11。代码基线：`629e666`，分支：`feature/reconfigurable-navigation-oracle`。
+交接更新日期：2026-09-15。代码发布基线：`008a7958cf542fe05a318290d4534358e0704f2b`，分支：`feature/reconfigurable-navigation-oracle`。旧物理集成提交629e666仍保留用于历史回归。
 
-部署更新：yuanyue 新服务器已完成 MuJoCo 回归和两张 GPU 的独立 Isaac/PPO 冒烟，实际路径、修复与剩余边界见 [新机部署记录](YUANYUE_SERVER_STATUS_CN.md)。本文保留通用重建步骤，双卡并发和 DDP 仍需单独验收。
+当前yuanyue服务器已完成环境部署、逐卡冒烟、分卡并行训练和最新MuJoCo组合复现；DDP未验证。实际路径、Git工作树与依赖状态见 [服务器记录](YUANYUE_SERVER_STATUS_CN.md)，统一任务状态见 [主交接](AGENT_HANDOFF_CN.md)。服务器HEAD仍为6c71d1a且工作树不干净，不应在该运行目录直接套用下文的新机克隆、安装或pull步骤。
 
-本文用于把当前可重构导航项目迁移到一台配有两块 RTX 4090 的 Linux 服务器。目标是先复现 MuJoCo 推理与技能组合，再恢复 Isaac Lab 训练环境；迁移本身不要求重新训练策略。
+本文保留迁移到另一台或重建后的Linux服务器所需步骤。先复现MuJoCo推理与技能组合，再按需恢复Isaac训练环境；迁移本身不要求重训策略。当前运行机器已安装完成，本次文档整理没有重新安装、训练或执行批量策略验收。
 
 ## 1. 依赖边界
 
@@ -13,14 +13,14 @@
 | 运行路径 | 必需组件 | GPU 要求 |
 | --- | --- | --- |
 | MuJoCo NAV/PUSH/CLIMB 推理、Oracle 规划、复杂课程回归 | Python、MuJoCo、PyTorch、NumPy、SciPy、PyYAML 等 | 无头物理回归可使用 CPU；交互 Viewer 需要图形环境 |
-| Isaac Lab 强化学习训练与原生评估 | NVIDIA 驱动、CUDA 版 PyTorch、Isaac Sim、Isaac Lab、RSL-RL、项目扩展及 USD 资产 | 单块 RTX 4090 已有成功记录；新服务器双卡配置需单独验收 |
+| Isaac Lab 强化学习训练与原生评估 | NVIDIA 驱动、CUDA 版 PyTorch、Isaac Sim、Isaac Lab、RSL-RL、项目扩展及 USD 资产 | 当前双4090的独立分卡训练已验证；DDP另行验证 |
 | 可选 MuJoCo PPO 训练 | MuJoCo 环境加 Gymnasium、Stable-Baselines3、TensorBoard | 与 Isaac Lab/RSL-RL 是不同训练入口，不是运行现有技能的前置条件 |
 
 建议建立两个隔离环境：`go2-mujoco` 用于 CPU 推理与回归，`go2-isaac` 用于 GPU 训练。不要为了 MuJoCo 回归在 Isaac 环境里安装 CPU 版 PyTorch，从而覆盖 CUDA 版本。
 
 ### 1.1 仓库安装清单的实际覆盖范围
 
-- [根目录 requirements.txt](../requirements.txt)：`mujoco>=3.0.0,<4.0.0`、`pynput>=1.7`、`scipy>=1.10`、`pyyaml>=6.0`、`psutil>=5.9`、`prettytable>=3.0`；没有声明 PyTorch、Isaac Sim、Isaac Lab 或 RSL-RL。
+- [根目录 requirements.txt](../requirements.txt)：MuJoCo、pynput、SciPy、PyYAML、psutil、prettytable，以及录像用imageio和imageio-ffmpeg；没有声明PyTorch、Isaac Sim、Isaac Lab或RSL-RL。新Box profile实际验证的是MuJoCo3.12.0，不把宽版本范围视为兼容性保证。
 - [项目扩展 setup.py](../source/LeggedManip_Lab/setup.py)：Python 下限为 `3.10`，运行依赖只声明 `psutil`。Editable 安装本项目不会自动安装完整训练栈。
 - [可选 MuJoCo PPO requirements.txt](../mujoco/train/go2_arx5/requirements.txt)：`gymnasium>=1.0,<2.0`、`stable-baselines3>=2.6,<3.0`、`tensorboard>=2.15`。
 
@@ -28,19 +28,19 @@
 
 ## 2. 已验证环境基线
 
-以下是原开发机和原单卡训练服务器的历史验证记录，不表示已经在新双卡服务器执行过验证。
+下表核心版本已在当前双4090服务器使用，2026-09-15再次读取包元数据和GPU版本确认；功能验收属于此前记录，不等于本次文档更新又运行了策略。更细的旧环境包表另行标记为历史。
 
-| 组件 | MuJoCo 开发/推理环境 | 原 RTX 4090 训练环境 |
+| 组件 | MuJoCo 开发/推理环境 | 当前双 RTX 4090 训练环境 |
 | --- | --- | --- |
 | 操作系统 | Linux，本地 Ubuntu 工作站 | Ubuntu 22.04.4 LTS，x86_64 |
 | Python | 3.11.16 | 3.11.16 |
-| MuJoCo | 3.12.0 | 3.12.0，作为独立验证工具 |
+| MuJoCo | 3.12.0 | 正式MuJoCo回归在单独CPU环境运行 |
 | PyTorch | 2.7.0+cpu | 2.7.0+cu128 |
 | Isaac Sim | 不需要 | 5.1.0.0 |
 | Isaac Lab | 不需要 | 源码 editable 安装，包版本 0.54.4，commit 见下文 |
 | RSL-RL | 不需要 | rsl-rl-lib 5.0.1 |
 | NVIDIA 驱动 | 无头 CPU 回归不需要 | 580.82.07 |
-| GPU | CPU 即可运行当前回归 | RTX 4090，24 GB，计算能力 8.9 |
+| GPU | 无头物理检查使用CPU；当前组合跨机器复现要求显式AVX2入口 | 2 x RTX 4090，单卡约24 GB |
 | 环境管理 | Micromamba | Micromamba |
 
 2026-09-11 已只读查询旧训练服务器，确认 Isaac Lab 工作树干净，精确 commit 为：
@@ -53,9 +53,9 @@ b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8
 
 当前可执行技能为 NAV、PUSH、CLIMB，STOP 为终态。JUMP 尚无完整 actor/runtime/skill，不属于可迁移的已完成技能。
 
-### 2.1 关键 Python 包的实测版本
+### 2.1 旧环境补充包表（2026-09-11历史）
 
-下表来自本次本地及旧服务器的包元数据查询。它不是覆盖所有传递依赖的 lockfile。
+下表保留当时本地和旧单卡服务器的元数据，不是当前双卡环境的完整锁文件。当前版本以服务器状态文档和实际包元数据为准；例如当前MuJoCo录像包已是imageio2.37.4/imageio-ffmpeg0.6.0。
 
 | 包 | MuJoCo 环境 | Isaac 环境 |
 | --- | --- | --- |
@@ -79,9 +79,11 @@ b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8
 
 Isaac Lab 在此 commit 下要求 `numpy<2`，不能直接复用 MuJoCo 环境的 NumPy 2.x。ROS/ROS 2、实机 SDK、LiveAgent、VS Code、VPN 客户端都不是当前无头仿真训练的必需依赖；Isaac Sim 的完整安装可能带有 ROS 扩展，但不要求另行配置 ROS 工作空间。
 
-### 2.2 旧 Isaac 环境已知依赖告警
+### 2.2 依赖状态与旧告警
 
-本次查询旧服务器的 `pip check` 返回非零，报告以下四项：
+2026-09-15当前服务器MuJoCo `pip check` 通过，Isaac仅报告FastAPI0.115.7要求Starlette<0.46.0而实际为0.49.1。未为文档更新修改依赖；训练可运行不代表相关Web服务或全部依赖组合已验证。
+
+以下四项是2026-09-11旧单卡环境的历史告警，不是当前双卡机器的现行修复清单：
 
 | 已安装组件 | 声明要求 | 旧环境实际值 |
 | --- | --- | --- |
@@ -92,7 +94,7 @@ Isaac Lab 在此 commit 下要求 `numpy<2`，不能直接复用 MuJoCo 环境�
 
 这些告警不改变原有 NAV/PUSH/CLIMB 实测通过的事实，但说明旧环境不是零冲突的依赖解。部分约束来自不同组件，例如锁定的 Isaac Lab 要求 `starlette==0.49.1`，而 `isaaclab_rl` 要求 `packaging<24`。不要单独升级或降级一个包就假定修好了整套环境。
 
-本文不修改旧服务器，也不声称新环境一定能用一次 pip 安装得到零告警。新机应记录 `pip check` 的实际输出；安装失败、新增冲突或冒烟失败均应先处理，不能直接开始正式训练。消除这四项历史冲突属于独立兼容性验证工作。
+新机应记录自己的 `pip check` 实际输出；安装失败、新增冲突或冒烟失败先定位，不能直接开始正式训练。不要按这四项历史告警对当前已验证环境盲目升级/降级，也不要为了消除记录中的告警重新安装整个Isaac栈。
 
 ## 3. 新服务器前置条件
 
@@ -131,7 +133,7 @@ sudo apt-get install -y \
 
 ## 4. 目录、源码与 Git LFS
 
-以下命令是通用迁移步骤，yuanyue 新机实际使用 `/mnt/yuanyue`；具体安装与验收记录见本文开头链接。`/data/go2` 是示例路径，应先换成目标服务器上有写权限的持久化目录。所有新终端和 tmux 会话都需要设置同样的变量。
+以下命令只用于新建的干净迁移目录；当前yuanyue运行目录使用 `/mnt/yuanyue`，已有脏工作树不应直接套用。`/data/go2` 是示例路径，先换成目标服务器上有写权限的持久化目录。所有新终端和tmux会话需要设置同样的变量。
 
 ```bash
 export GO2_ROOT=/data/go2
@@ -158,11 +160,11 @@ git clone --branch feature/reconfigurable-navigation-oracle \
 	https://github.com/WM4N-Group/GO2-ARX5-MUJOCO.git "$PROJECT_DIR"
 cd "$PROJECT_DIR"
 git lfs pull
-git merge-base --is-ancestor 629e666eb3479a39069f6443bce493d0ffbb5b65 HEAD
+git merge-base --is-ancestor 008a7958cf542fe05a318290d4534358e0704f2b HEAD
 git status --short --branch
 ```
 
-`merge-base` 返回 0 表示克隆版本包含已验证的集成提交；需要完全固定代码时，可在这个新克隆中 checkout 上述完整 hash。后续已有工作区使用 `git pull --ff-only`，不要覆盖未提交的服务器修改。
+`merge-base` 返回0表示克隆版本包含当前箱体训练与验证代码；需要固定版本时，可在此新克隆中checkout上述hash。已有工作区先检查 `git status` 和分支，只在确认干净且适合快进时使用 `git pull --ff-only`。当前yuanyue目录为旧HEAD加累计同步改动，需先备份、核对差异或使用新的干净工作区，禁止用reset消除这些改动。
 
 [.gitattributes](../.gitattributes) 为 USD、网格、策略等声明了 LFS。必须检查资产内容，不能仅确认文件存在：LFS 指针也是一个存在的文本文件。若 `git lfs pull` 报对象不存在或权限问题，先恢复远端 LFS 对象或从已验证机器同步完整资产，不能带着指针文件进入仿真。
 
@@ -211,16 +213,16 @@ sha256sum mujoco/deploy/policy/go2_arx5/policy.pt \
 	mujoco/deploy/policy/go2_arx5/climb/policy_iter1499.pt
 ```
 
-当前已验证值：
+旧生产NAV和低台阶CLIMB的已验证值如下，它们不是新移动箱高台工作流的三个候选：
 
 ```text
 d46a829f8cc2f85f19a030140092a206880e56f42aca6314be4e165e847de347  mujoco/deploy/policy/go2_arx5/policy.pt
 ef88741365e85365486c30762bd792e57292eb8798b5f5aaa19af2ebb8495af5  mujoco/deploy/policy/go2_arx5/climb/policy_iter1499.pt
 ```
 
-中间策略 `policy_iter348.pt`、`policy_iter900.pt` 不属于必需迁移文件；最终策略已经纳入 `629e666`。不要因迁移而重新训练或替换 actor。
+中间策略 `policy_iter348.pt`、`policy_iter900.pt` 不属于必需迁移文件；旧最终策略已经纳入629e666。保留这些接受基线，不因迁移或动作观感重训；新箱体候选另按5.3节迁移。
 
-### 5.2 无头验收
+### 5.2 旧生产基线无头验收
 
 ```bash
 python mujoco/check_reconfigurable_navigation.py --seeds 100
@@ -236,6 +238,35 @@ python mujoco/visualize_climb_policy.py \
 原验收记录分别为 Oracle `100/100`、NAV `100/100`、PUSH `20/20`、CLIMB 切换 `10/10`、复杂课程 `10/10`。新机应重新记录结果，不把旧数字直接当成新机结果。复杂课程成功还应包含 `reason=goal_reached`、`resets=1`、指尖接触成立、无机身接触与非法碰撞。
 
 上述物理检查不需要 X11，也不需要创建图像渲染器。交互 `--visualize` 需要真实可用的 DISPLAY/OpenGL；SSH 终端、`MUJOCO_GL=egl` 或 Xvfb 本身不等价于可交互桌面。需要 MuJoCo 离屏渲染时才考虑 EGL；远程查看优先录制视频后下载，或配置受支持的远程桌面。
+
+### 5.3 当前移动箱高台候选
+
+仅克隆008a795不能取得新权重。另从已验证机器复制以下三个完整包及 `continuous-climb-validation-v2.json`：`push-height020-stop200-bundle`、`climb-prepared-ground499-bundle`、`climb-prepared-gaps399-bundle`。当前来源为 `/mnt/yuanyue/data/box-skills-eval/` 或本地 `/home/yuanyue/re-nav/artifacts/box-skills/2026-09-14/`。包内包含actor、参数、评估和所需起步状态数据，不能只复制某个 `.pt` 就宣称完整复现。
+
+把 `BOX_BUNDLE_ROOT` 指向复制后的目录，在已激活的MuJoCo环境中核对actor内容：
+
+```bash
+export BOX_BUNDLE_ROOT="$GO2_ROOT/artifacts/box-skills/2026-09-14"
+python - <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+root = Path(os.environ["BOX_BUNDLE_ROOT"])
+index = json.loads((root / "continuous-climb-validation-v2.json").read_text())
+for role, entry in index["policies"].items():
+	policy = root / entry["bundle"] / "policy.pt"
+	assert hashlib.sha256(policy.read_bytes()).hexdigest() == entry["policy_sha256"]
+	print(role, entry["policy_sha256"])
+PY
+mkdir -p "$GO2_ROOT/reports"
+report_dir=$(mktemp -d "$GO2_ROOT/reports/box-support-XXXXXX")
+python "$PROJECT_DIR/mujoco/run_box_support_sequence.py" --push-policy "$BOX_BUNDLE_ROOT/push-height020-stop200-bundle/policy.pt" --climb-policy "$BOX_BUNDLE_ROOT/climb-prepared-ground499-bundle/policy.pt" --platform-policy "$BOX_BUNDLE_ROOT/climb-prepared-gaps399-bundle/policy.pt" --seed-offset 500 --seeds 1 --output-json "$report_dir/result.json"
+```
+
+该入口只对子进程固定AVX2/MKL/oneDNN推理路径，当前两台支持AVX2的x86机器各29/32且逐回合结局一致；使用自动CPU分派时曾有29/32与27/32差异。报告同时记录实际数值配置，其他硬件需重新验收。29/32包含NAV对位和顶面定位，高台actor原生21/32、22/32仍为diagnostic，不能写成全回合通过或单actor达标。批量只要有失败仍返回非零，应读取结果。
+
+新PUSH接口为226输入、12腿动作加IK得到18维实际历史，不能塞进旧210输入NAV runtime。新Box-Climb虽仍253输入，但使用独立机器人profile、首命令填满延迟缓冲及连续起步流程；旧低台阶runtime的零缓冲兼容行为不应直接套用。机器人profile对齐训练USD，包括其1 kg无碰撞末端刚体，不是实机惯量标定。详细契约见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md)。
 
 ## 6. 安装 Isaac 训练环境
 

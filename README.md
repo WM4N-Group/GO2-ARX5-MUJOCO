@@ -14,6 +14,7 @@
 
 [English](README.md) | [中文](README_CN.md)
 
+GO2-ARX5 branch handoff: start with [the current project snapshot](docs/AGENT_HANDOFF_CN.md), [server status](docs/YUANYUE_SERVER_STATUS_CN.md), and [box-skill validation](docs/BOX_SKILL_TRAINING_CN.md). New candidate weights, state datasets and videos are external artifacts, not part of a Git clone. The framework examples below do not replace this branch's pinned environment and reproduction instructions.
 
 **A Reinforcement Learning (RL) framework for legged robots with manipulator arms**
 

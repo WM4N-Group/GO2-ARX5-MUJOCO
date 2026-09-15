@@ -1,12 +1,28 @@
 # 会话压缩与跨服务器 Agent 交接
 
-2026-09-14 最新继续任务已完成三轮候选训练，当前完整流程在全新seed500-531上，本地和服务器均为29/32（90.6%），逐回合结局及原因一致；失败510/525/528均为高台机身接触，PUSH和第一段登箱均32/32。组合使用既有PUSH200、第一阶段 `2026-09-14_19-08-05_prepared_ground_context/model_499.pt` 和高台 `2026-09-14_19-52-50_prepared_platform_gaps/model_399.pt`。包含四足静稳准备、实际箱面法线对位、NAV顶面定位；只有一次物理初始化、技能切换零物理reset。最终录像 `artifacts/box-skills/2026-09-14/box-to-platform-final-seed500.mp4` 约29.70s，743帧，配套JSON/预览同目录。详见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md) 的连续起步章节。
+更新日期：2026-09-15。本文是当前交接入口，历史指标和安装细节分别保留在专门文档中；其他交接文件引用本文的现行状态。
+
+## 当前快照
+
+代码发布基线：`008a7958cf542fe05a318290d4534358e0704f2b`，分支 `feature/reconfigurable-navigation-oracle`，2026-09-15 已推送并核对 GitHub 远端 hash。提交包含44个代码、机器人配置和文档文件，发布前40项聚焦检查及暂存Python语法检查通过。本次后续文档整理不自动代表另一次 Git 发布，应检查实际工作树和历史。
+
+当前完整流程在未参与调整的seed500-531上，本地和服务器均为29/32（90.6%），逐回合结局及原因一致；失败510/525/528均为高台机身接触，PUSH和第一段登箱均32/32。工况是自由5 kg箱体、摩擦0.4、20 cm箱高和40 cm高台，包含NAV对位与顶面定位，只有一次物理初始化、技能切换零物理reset。它是独立验证入口，尚未接入生产Oracle/executor，不是任意布局或实机泛化结论。详见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md)。
+
+当前选用的三个导出包为 `push-height020-stop200-bundle`、`climb-prepared-ground499-bundle`、`climb-prepared-gaps399-bundle`。它们及状态数据、录像未纳入Git，克隆源码后还需单独取得产物并核对包内manifest。
 
 必须通过 `mujoco/run_box_support_sequence.py` 复现当前跨机器结果：它对子进程统一AVX2/单线程数值路径，并在报告记录后端。直接使用旧check入口的默认CPU路径，本地AVX2为29/32、服务器AVX512为27/32，微小推理差异会经接触动力学放大。当前显式入口已在这两台支持AVX2的x86机器验证，不改系统配置或旧生产runtime。最终本地报告 `box-sequence-final-local500.json`、服务器报告 `box-sequence-final-server500.json` 在产物目录。
 
-本轮索引是 `artifacts/box-skills/2026-09-14/continuous-climb-validation-v2.json`，绑定选用的PUSH200、prepared_ground499、prepared_platform_gaps399及最终录像；服务器副本在 `/mnt/yuanyue/data/box-skills-eval/`。早期索引 `mujoco-deployment-validation.json` 不覆盖，勿将其中18/32状态视为最新。当前6项起步/目标面、6项运行、4项地形和3项评估契约检查通过。2026-09-15 的 Git 更新范围为训练、部署和验收源码、机器人配置及文档；本轮训练权重、状态数据和录像继续在上述产物目录独立保存，未纳入代码仓库。实际提交和远端发布状态以 Git 历史为准。
+最终产物根目录：本地 `/home/yuanyue/re-nav/artifacts/box-skills/2026-09-14/`，服务器 `/mnt/yuanyue/data/box-skills-eval/`。索引 `continuous-climb-validation-v2.json` 绑定三份策略、源码、数值配置和报告；最终录像是 `box-to-platform-final-seed500.mp4`（约29.70s、743帧、25 FPS），同名JSON及 `box-to-platform-final-seed500-preview.jpg` 在同目录。本地/服务器报告分别为 `box-sequence-final-local500.json`、`box-sequence-final-server500.json`。不要将早期18/32索引或seed100录像当作最新版本。
+
+2026-09-15 只读核对：本地代码HEAD为008a795，文档编辑开始前只有两个故意未跟踪的中间权重；服务器Git HEAD仍为 `6c71d1a61dbf433022b4c06f0561344884225532`，存在累计同步和资产改动。服务器实际运行源码不能仅凭HEAD判断，也不能声称整个工作树与008a795完全相同；以报告中的源码/资产/权重hash核对。不要直接pull、reset或清理该工作树。两张GPU均空闲，未发现训练或评估进程；开始新作业前仍需重查。
 
 原生单策略状态：第一阶段prepared_ground499为32/32、31/32；最终高台gaps399为21/32（1.5cm间隙）、22/32（6cm），仍是diagnostic候选，不能用29/32组合结果冒充高台actor独立通过。高台训练400更新、921.12s已结束；当前无训练需要等待，不要重复启动旧active记录。起步数据只用于独立Isaac训练回合reset，MuJoCo技能切换不改写物理状态。训练seed16-31状态池与原生评估seed200-215状态池分离，导出包保存原始数据及hash；本轮保留原接受权重，未替换生产默认actor/Oracle。
+
+当前下一步：收敛3次高台接触失败并完成更宽工况检查，再将新流程接入生产executor与记录接口。世界模型、VLM、RGB-D闭环和大规模数据扩容继续暂缓。原接受的CLIMB与NAV/PUSH部署基线保留；新候选与旧默认策略不得混用。
+
+## 历史阶段记录
+
+下面至“新 Agent 的阅读顺序”之前是2026-09-11至2026-09-14的阶段记录，包含当时尚未修复或完成的状态，仅供追溯；当前结果、下一步与运行位置以上方“当前快照”为准。
 
 最新用户指令是接受当前 20 cm CLIMB 后“继续推进”。2026-09-14 已完成 20 cm 正常摩擦混合 PUSH 的独立 Isaac 验收：5 kg、摩擦 0.4、60 cm 目标，seed=103/104 各 31/32，每组一次无效手部接触失败，无未完成。用户需要通过移动箱体形成中间台阶登高台；已接受的 CLIMB actor 冻结。详见 [箱体技能训练记录](BOX_SKILL_TRAINING_CN.md)。暂缓世界模型训练、几何候选与大规模数据扩容。
 
@@ -24,7 +40,7 @@ CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零�
 
 新录像在本地 `/home/yuanyue/re-nav/artifacts/box-skills/2026-09-14/push-height020-stop200.mp4`：约 5.96 秒，实际推移 0.51986 m，距 60 cm 目标误差 0.08101 m，符合 12 cm 容差。配套 `-video.json`、预览、导出包、MuJoCo 批量失败报告及 `box-support-sequence-rate-limited.json` 均在同目录。评估 schema v4 补记终止控制步的异常接触；旧 v3 的零异常步统计可能漏掉导致终止的接触，须同时读终止原因。
 
-整理日期：2026-09-11。项目：GO2-ARX5-MUJOCO，可重构导航分支。
+本段历史整理日期：2026-09-11。项目：GO2-ARX5-MUJOCO，可重构导航分支。
 
 部署与开发更新：yuanyue 新机已完成 MuJoCo 与逐卡 Isaac 验收；N1 已完成技能边界记录、完整起点快照、跨进程重放和 600 请求/542 条执行记录的 pilot。最新开发边界见 [N1 快照与数据记录](N1_REPLAY_DATA_CN.md)，环境路径和已知冲突见 [新服务器记录](YUANYUE_SERVER_STATUS_CN.md)，不要将下文的早期生成时状态视为当前状态。
 
@@ -44,7 +60,7 @@ CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零�
 4. 涉及部署时阅读 [双 RTX 4090 迁移指南](SERVER_MIGRATION_2X4090_CN.md)。
 5. 需要研究目标和数据规格时阅读 [原始设计与实施计划](RECONFIGURABLE_NAVIGATION_PLAN_CN.md)。
 
-本文的代码状态基于 `848a3c4`；物理技能集成提交为 `629e666`。后续提交以实际工作树和测试为准。旧外部交接文件里“尚未提交”“下一步实现 PUSH”等早期状态已经过时，不能覆盖这里较新的事实。
+当前代码发布基线为 `008a795`；`848a3c4` 是早期迁移指南提交，`629e666` 是旧物理技能集成提交。后续状态以实际工作树和测试为准。旧外部交接中的“尚未提交”“下一步实现 PUSH”等早期安排不能覆盖当前快照。
 
 ## 2. 一分钟恢复上下文
 
@@ -53,16 +69,17 @@ CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零�
 | 最终目标 | 利用可移动物体改变可达性，实现对象中心、技能级世界模型驱动的闭环导航 |
 | 系统职责 | VLM 提 WHAT，几何模块落 WHERE，世界模型评估 WHETHER，executor 负责物理执行 |
 | 已实现技能 | NAV、PUSH、CLIMB；STOP 是终态；JUMP 未实现 |
-| 已通过的组合 | NAV-PUSH-NAV、NAV-CLIMB-NAV、NAV-PUSH-NAV-CLIMB-NAV |
+| 旧生产基线 | NAV-PUSH-NAV、NAV-CLIMB-NAV、清除入口后爬固定台阶；仍保留 |
 | 当前规划方式 | MuJoCo 真值状态 + 规则式 Oracle + 栅格/A*；每次仅执行最新计划的首个技能 |
 | 仍依赖人工配置 | 场景语义、部分推箱目标、平台 entry/landing portal |
 | 世界模型/VLM/视觉 | 尚未实现学习世界模型、VLM proposal 和 RGB-D 推理闭环 |
-| 高台任务的真实进度 | 已清除台阶入口阻挡并爬台阶；未完成把箱体推成支撑物后两次 CLIMB |
-| 当前迁移状态 | 新双 RTX 4090 服务器已部署，MuJoCo 回归和两次独立 GPU 冒烟通过；DDP 未验证 |
-| 下一项开发 | 已有事件标签与参数化通道扫描；继续几何推面/接近/停放候选、能力 profile 和多布局场景族评测 |
+| 高台任务的真实进度 | 独立移动箱支撑流程29/32，原生高台actor未独立达标，未接入生产executor |
+| 当前迁移状态 | 双4090已部署，分卡并行训练和MuJoCo复现完成；DDP未验证 |
+| 下一项开发 | 改善高台接触失败、扩大技能范围检查、准备生产集成；学习世界模型与数据扩容暂缓 |
 
 ## 3. 用户已经确认的方向
 
+- 最新优先级是正常摩擦推箱、登移动箱及高台的真实物理可靠性；单独actor、组合流程和旧基线的成绩分别记录。
 - 先使 CLIMB 独立训练和 Sim-to-Sim 成功，再组合复杂任务；这两项的当前阶段验收已经完成。
 - 用户看过 Isaac 跟随录像，接受 CLIMB 的跳跃/前扑式动作。现阶段以成功和落稳为主，不为追求准静态步态或观感而重新训练。
 - 最终 CLIMB actor 在 Isaac 中有效；当 MuJoCo 跌倒时，应先排查 adapter、执行器和动力学语义，不能直接归因于策略无效。
@@ -70,7 +87,9 @@ CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零�
 - 环境隔离，代码由 Git 同步，日志和大规模训练产物放持久化存储。新服务器不要直接照搬旧机器绝对路径。
 - 对已实现、历史验收、当前机器实测和计划项分别陈述。用户曾认为“四技能就位”，后来已澄清 JUMP 仍是占位，不能重复早期误述。
 
-## 4. 已完成工作的压缩时间线
+## 4. 历史基线时间线
+
+本节为早期NAV、低摩擦PUSH和低台阶CLIMB的验证历史；不代表最新箱体候选，也不能覆盖当前快照中的待办。
 
 ### 环境与稳定 locomotion
 
@@ -82,7 +101,7 @@ NAV runtime 保持上游 210 维三帧历史观测和 18 维动作，修复内�
 
 为 ARX5 各 link 加入 mesh collision hull，解决视觉穿模和机身代替机械臂推箱的问题。PUSH 使用 `ALIGN -> CONTACT -> PUSH -> VERIFY -> RETREAT` 状态机，要求指尖接触，拒绝机身/腿部接触。
 
-当前箱体是质量 5 kg、摩擦系数 0.005 的脚轮箱，不代表普通高摩擦 5 kg 箱体也已可推。真实 NAV-PUSH-NAV 本地 20/20、旧服务器 5/5，最大穿透约 3.9-7.0 mm，低于当时 10 mm 验收上限。
+该旧生产场景的箱体为质量5 kg、摩擦系数0.005的低阻基线，不能代替新5 kg/摩擦0.4任务的验收。旧真实NAV-PUSH-NAV本地20/20、旧服务器5/5，最大穿透约3.9-7.0 mm，低于当时10 mm验收上限。
 
 executor 每个技能后重新观察并规划，不盲目执行原计划后缀。已验证失败预算和 Viewer 中断的区分；完整站立恢复、跌倒恢复仍未完成。
 
@@ -113,6 +132,12 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 
 | 入口 | 职责 |
 | --- | --- |
+| [run_box_support_sequence.py](../mujoco/run_box_support_sequence.py) | 当前独立移动箱高台流程的统一CPU启动入口 |
+| [check_box_support_sequence.py](../mujoco/check_box_support_sequence.py) | 实际箱面对位、准备、两段CLIMB及逐阶段报告；不等于生产executor |
+| [box_push_runtime.py](../mujoco/reconfigurable_navigation/box_push_runtime.py) | 226维输入、12腿动作、IK机械臂与18维组合动作历史 |
+| [box_climb_runtime.py](../mujoco/reconfigurable_navigation/box_climb_runtime.py) | 新箱体执行器首命令、支撑和队列继承契约 |
+| [box_robot_profile.json](../mujoco/deploy/box_robot_profile.json) | 对齐训练资产的安装/惯量配置，不是实机标定 |
+| [BOX_SKILL_TRAINING_CN.md](BOX_SKILL_TRAINING_CN.md) | 当前候选、训练和对照证据的详细来源 |
 | [oracle_planner.py](../mujoco/reconfigurable_navigation/oracle_planner.py) | 规则候选、路径/阻挡判断、PUSH/CLIMB 技能计划 |
 | [representations.py](../mujoco/reconfigurable_navigation/representations.py) | 对象、能力、OracleObservation 和 SkillAction |
 | [executor.py](../mujoco/reconfigurable_navigation/runtime/executor.py) | 逐技能执行、actor 切换与重规划 |
@@ -130,13 +155,25 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 
 ## 6. 环境与机器身份
 
-| 用途 | 已验证历史环境 |
+当前路径如下；服务器Git工作树状态见当前快照，安装细节以 [服务器状态](YUANYUE_SERVER_STATUS_CN.md) 和 [迁移指南](SERVER_MIGRATION_2X4090_CN.md) 为准。
+
+| 用途 | 当前路径 |
+| --- | --- |
+| 本地仓库 | `/home/yuanyue/re-nav/GO2-ARX5-MUJOCO` |
+| 本地启动器 / MuJoCo环境 | `/home/yuanyue/re-nav/.tools/micromamba` / `/home/yuanyue/re-nav/.envs/go2-arx5-nav` |
+| 当前SSH别名 | `go2-yuanyue`，端口46308；公钥登录已配置 |
+| 服务器仓库 | `/mnt/yuanyue/GO2-ARX5-MUJOCO` |
+| 服务器MuJoCo / Isaac环境 | `/mnt/yuanyue/envs/go2-mujoco` / `/mnt/yuanyue/envs/go2-isaac` |
+| Isaac启动器 / IsaacLab | `/mnt/yuanyue/bin/isaac-python` / `/mnt/yuanyue/IsaacLab` |
+| 日志与报告 | `/mnt/yuanyue/logs/skill-retraining/` / `/mnt/yuanyue/data/box-skills-eval/` |
+
+| 用途 | 已验证环境 |
 | --- | --- |
 | 旧本地 MuJoCo | Python 3.11.16，MuJoCo 3.12.0，PyTorch 2.7.0+cpu，NumPy 2.4.6 |
 | 旧单卡 Isaac | Ubuntu 22.04.4，驱动 580.82.07，RTX 4090，Python 3.11.16，PyTorch 2.7.0+cu128 |
 | Isaac 栈 | Isaac Sim 5.1.0.0，Isaac Lab 0.54.4，RSL-RL 5.0.1，NumPy 1.26.0 |
 | Isaac Lab 固定提交 | `b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8`，2026-09-11 只读查询时工作树干净 |
-| 新双 4090 服务器 | MuJoCo 安装及回归通过，两张 GPU 分别完成 16 环境单次 PPO；双卡并发和 DDP 未验证 |
+| 当前双4090服务器 | MuJoCo复现与分卡并行PPO训练完成；DDP未验证 |
 
 旧路径仅用于寻找历史资料，不是新服务器默认路径：
 
@@ -158,12 +195,20 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 - MuJoCo 与 Isaac 环境分离，尤其不要把 CPU PyTorch 或 NumPy 2.x 装进已验证 Isaac 环境。
 - Isaac Sim 5.1 使用 Python 3.11，Linux pip 安装要求 glibc >=2.35。不要在迁移时同时升级 Isaac 主版本或改用不兼容的旧 Isaac Lab release。
 - 旧启动器通过环境内 libstdc++ 预加载解决 `CXXABI_1.3.15`；新路径封装见迁移指南，不替换系统动态库。
-- 旧 Isaac 环境实际 `pip check` 有 wheel/packaging、fastapi/starlette、isaacsim-kernel/psutil、typing_extensions 四项冲突。训练已通过不等于依赖元数据无冲突。
+- 当前MuJoCo环境的依赖检查已通过；Isaac环境既有FastAPI/Starlette元数据冲突仍需单独看待。旧单卡环境曾有更多冲突，不应照搬为新环境状态；训练通过不等于所有依赖元数据无冲突。
 - 正式 CLIMB 训练已结束，但历史“GPU 空闲”不是当前事实；启动任何新作业前重新检查进程、GPU 和磁盘。
 
 ## 7. 模型与训练产物
 
-运行 MuJoCo 必需的两个最终 actor 都已纳入代码基线：
+当前组合选用的三个包均不随Git克隆。包根目录为本地 `/home/yuanyue/re-nav/artifacts/box-skills/2026-09-14/` 或服务器 `/mnt/yuanyue/data/box-skills-eval/`；各包包含 `policy.pt`、训练参数、评估与manifest。使用前核对hash和原生/组合验收标记，不能从目录名推断已达标。
+
+| 角色 | 当前包 | 边界 |
+| --- | --- | --- |
+| PUSH | `push-height020-stop200-bundle` | 226->12加IK，不是旧210输入runtime |
+| 第一段登箱 | `climb-prepared-ground499-bundle` | 原生独立状态池32/32、31/32；需连续起步准备 |
+| 第二段高台 | `climb-prepared-gaps399-bundle` | 原生21/32、22/32，仍diagnostic；29/32是包含NAV的完整组合 |
+
+旧生产基线所需的两个actor已纳入Git，不能用来冒充上述三个包：
 
 - [NAV actor](../mujoco/deploy/policy/go2_arx5/policy.pt)，SHA-256 为 `d46a829f8cc2f85f19a030140092a206880e56f42aca6314be4e165e847de347`。
 - [CLIMB actor](../mujoco/deploy/policy/go2_arx5/climb/policy_iter1499.pt)，SHA-256 为 `ef88741365e85365486c30762bd792e57292eb8798b5f5aaa19af2ebb8495af5`。
@@ -191,7 +236,7 @@ executor 每个技能后重新观察并规划，不盲目执行原计划后缀�
 
 - Git 曾出现 HTTP 408、TLS 连接中断。约 1.1 MiB 的功能包并不大；网络问题不能靠重新 commit 解决，也不能根据错误日志末尾的 `Everything up-to-date` 判定成功。
 - 一次 commit 成功、push 失败后，只重试 push；再次运行 `git commit && git push` 时，空提交会阻止后半段执行。
-- 最近一次文档上传使用单次 `git -c http.version=HTTP/1.1 push ...` 成功，未修改全局网络设置。上传后用远端 ref/hash 核对，而不只看本地 ahead/behind 缓存。
+- 2026-09-15 发布008a795时，直连GitHub超时；经既有服务器代理及临时本地回环转发17890推送成功，随后已关闭转发，没有修改全局Git代理。上传后要核对远端ref/hash，不能只看本地缓存；不要假定临时转发仍存在。
 - 自动终端和用户 VS Code 的 Git 身份/认证上下文可能不同。不要伪造提交作者；需要凭据时由用户在安全入口处理。
 - 多行命令粘贴日志曾出现反斜杠后的零宽字符，并返回 127。优先给单行命令并检查不可见字符，先排除 shell 粘贴问题，不据此判断策略或环境损坏。
 - 旧默认终端没有 `rg`，可以使用编辑器搜索或 grep，不必为一次查询改系统环境。
@@ -202,9 +247,17 @@ LiveAgent 曾作为可选远程操作工具配置：旧 Ubuntu 24.04 上 AppImag
 
 ## 9. 接下来做什么，以及暂时不做什么
 
-详细范围与门槛以 [后续开发规划](RECONFIGURABLE_NAVIGATION_NEXT_PLAN_CN.md) 为准。该规划已经写出，但其中新模块尚未实现。
+当前执行顺序以下列事项为准；[后续开发规划](RECONFIGURABLE_NAVIGATION_NEXT_PLAN_CN.md) 中N0-N7为保留的长期路线，不能覆盖当前技能优先级。
 
-1. **N0**：在新机复现现有 golden regression，冻结环境、actor、控制和场景版本。
+1. 固定源码、三份策略、机器人profile和数值启动器，复现最终报告；不按旧终端ID重启已结束训练。
+2. 针对seed510/525/528的高台机身接触继续诊断，区分策略、接近几何和控制差异，保持原成功/失败判据。
+3. 检查更宽质量、摩擦、尺寸、间隙及起点范围，单列边界失败，不根据当前单布局29/32外推能力。
+4. 将验证后的新流程接入生产executor与数据记录，检查真实技能切换、快照兼容和失败恢复；不直接覆盖旧默认actor。
+5. 技能范围与数据质量可靠后，再恢复几何候选、多布局、世界模型和VLM/RGB-D工作。
+
+已完成或暂停的长期路线状态：
+
+1. **N0**：新机既有基线复现已完成；改动涉及旧基线时按需回归，不重复安装或训练。
 2. **N1**：已有 SkillTransition、技能起点快照和 542 条实际执行 pilot；控制步过程事件与原因已在本地和服务器验证，继续逐物理步/失稳判据及数据质量覆盖。当前仅一个场景族，不能用样本数代替泛化评估。
 3. **N2**：单通道族参数化扫描与独立分支候选已贯通；继续多个几何候选和多布局族，假设移除对象不能代替真实物理教师。
 4. **N3/N4**：先做特权状态 NAV/PUSH 世界模型和校准，再做模型驱动的搜索/CEM/闭环；低层支持 CLIMB 不等于模型已覆盖它。
@@ -224,7 +277,17 @@ git log -3 --oneline
 nvidia-smi
 ```
 
-按迁移指南激活正确的 MuJoCo 环境后，复用现有回归，不另写一套验收入口：
+先确认三个非Git策略包齐全，再按实际任务选择检查，不把下面的示例当作每次阅读交接后自动运行整套仿真或训练的要求。
+
+当前连续流程的服务器单回合复现命令如下，结果写入新建目录；本地需改用上表的Micromamba环境和本地产物路径。该命令未启用录像，录像另加 `--video-path` 并设置 `MUJOCO_GL=egl`。
+
+```bash
+check_dir=$(mktemp -d /mnt/yuanyue/data/box-skills-eval/handoff-check-XXXXXX) && /mnt/yuanyue/envs/go2-mujoco/bin/python /mnt/yuanyue/GO2-ARX5-MUJOCO/mujoco/run_box_support_sequence.py --push-policy /mnt/yuanyue/data/box-skills-eval/push-height020-stop200-bundle/policy.pt --climb-policy /mnt/yuanyue/data/box-skills-eval/climb-prepared-ground499-bundle/policy.pt --platform-policy /mnt/yuanyue/data/box-skills-eval/climb-prepared-gaps399-bundle/policy.pt --seed-offset 500 --seeds 1 --output-json "$check_dir/result.json"
+```
+
+批量 `--seeds 32` 若有任何失败仍返回非零，需读取逐回合结果；不能把29/32称为全回合通过。当前40项发布前检查是已有证据，本次文档核对没有重跑策略验收。
+
+改动旧生产行为时再复用其回归入口：
 
 ```bash
 python mujoco/check_reconfigurable_navigation.py --seeds 100
@@ -245,9 +308,9 @@ python mujoco/check_complex_course.py --seeds 1 --visualize
 
 ## 11. 发布状态与记忆如何迁移
 
-最近一次已经核对成功的远端提交为 `848a3c46c72a5795d9d56d58c6a1a0bc8bb28b07`，它包含双卡迁移指南；前一个 `629e666` 包含物理技能集成。
+最近一次核对成功的代码发布为 `008a7958cf542fe05a318290d4534358e0704f2b`（2026-09-15，44文件），覆盖箱体技能训练、部署配置、检查入口及当时的交接文档。早期迁移提交848a3c4和技能提交629e666仅用于历史定位。
 
-本文生成时，后续开发规划、当前交接文档和根目录 AGENTS 入口属于新增本地文档，README 也有新增索引。只克隆旧的 `848a3c4` 不会获得这些新文件；迁移前需要将它们一起提交/推送，或用安全文件传输带到新服务器。后续发布状态通过实际 Git 历史和文件存在性判断，不把这段生成时状态当成永久结论。
+代码基线、服务器运行目录和外部产物分别迁移：克隆源码不会取得新策略包、状态数据、录像或私有SSH/代理配置；服务器Git HEAD旧而工作树已文件同步，也不能直接reset或pull覆盖。本次文档整理后的新修改是否另行发布，应检查Git工作树和远端，不能把本文中的代码基线hash当作文档修改已经推送的证明。
 
 支持仓库 AGENTS 约定的工具可以自动发现 [根目录入口](../AGENTS.md)，但是否自动载入取决于 agent 和编辑器配置。通用兜底是在新会话中明确要求读取这些文件；不依赖旧 VS Code workspaceStorage、内部 memory 工具或旧机器绝对路径。
 

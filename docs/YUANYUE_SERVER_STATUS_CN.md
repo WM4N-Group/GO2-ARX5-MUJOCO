@@ -1,6 +1,8 @@
 # yuanyue 双 RTX 4090 部署与开发记录
 
-验证日期：2026-09-11。部署源码基线：`6c71d1a`，分支：`feature/reconfigurable-navigation-oracle`。后续 N1 代码已同步到新服务器，发布版本以 Git 历史为准；数据、快照和训练产物保留在服务器。
+当前核对日期：2026-09-15；初始部署验收日期：2026-09-11。统一项目状态见 [主交接](AGENT_HANDOFF_CN.md)，本文负责机器、环境、路径和部署证据。
+
+代码发布基线为 `008a7958cf542fe05a318290d4534358e0704f2b`，分支 `feature/reconfigurable-navigation-oracle`，2026-09-15已推送并核对GitHub。服务器Git HEAD仍为 `6c71d1a61dbf433022b4c06f0561344884225532`，工作树存在累计同步和资产改动；实际运行文件按源码/模型hash核对，不直接pull或reset。新权重、数据与录像不随Git发布。
 
 后续进度：完整技能起点快照和跨进程重放已通过，新增 600 请求/542 条执行记录的候选 pilot；详见 [N1 快照与数据记录](N1_REPLAY_DATA_CN.md)。下文第 7 节保留最早 50 条边界记录的阶段性结果。
 
@@ -11,10 +13,12 @@
 ## 1. 当前结论
 
 - 新服务器的 mihomo、隔离 MuJoCo 环境和隔离 Isaac 环境已经部署。
-- MuJoCo 原有基线全部通过；两张 GPU 分别完成 `16 env x 1 PPO iteration` 的真实 Isaac 验收并生成 checkpoint。
-- 原 CLIMB 的可续训 checkpoint 和训练参数已迁移，最终部署 actor 未修改或重新训练。
+- MuJoCo旧基线及逐卡PPO冒烟已于初始部署阶段完成；后续两卡并行独立训练也已完成，不能再标记为“并行未验证”。这不等于DDP或双卡加速比验收。
+- 最新自由5 kg、摩擦0.4、20 cm箱到40 cm高台组合，在seed500-531上本地和服务器均29/32，失败510/525/528均为高台机身接触；需要显式AVX2启动入口，详见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md)。
+- 原接受的actor保留，新三份候选独立保存；高台actor原生21/32、22/32仍未过单策略门槛，组合分数包含NAV对位和顶面定位，尚未接入生产executor。
 - N1 已完成可选边界记录、技能起点物理/控制器快照、归档重放、控制步事件及失败原因和参数扰动物理候选 pilot。逐物理步覆盖、完整失稳/支撑判据、多场景划分和正式训练数据集仍待完成。
-- 双卡同时训练、DDP、完整 checkpoint 的原生录像评估尚未在新机验收。
+- 三轮连续起步/场景/间隙候选训练均已结束，原生录像评估与完整MuJoCo录像已完成。2026-09-15检查未发现训练或评估进程，两张GPU各0%利用率、1 MiB占用；新作业前重查。
+- 当前下一步是收敛剩余高台接触失败与正式集成，世界模型训练和大规模数据扩容暂缓。本文更新没有重新运行策略批量验收。
 
 ## 2. 环境与路径
 
@@ -25,15 +29,21 @@
 | 主机资源 | 约 114 GiB RAM；容器可用 CPU 配额 32 |
 | 持久化目录 | `/mnt/yuanyue`，JuiceFS；显示的共享池容量不是个人配额，也不是已验证的本地 NVMe 性能 |
 | 项目源码 | `/mnt/yuanyue/GO2-ARX5-MUJOCO` |
+| 当前SSH入口 | `go2-yuanyue`，端口46308；公钥登录已配置 |
+| 服务器Git状态 | HEAD `6c71d1a`，工作树不干净；发布代码基线为008a795 |
 | Micromamba | `/mnt/yuanyue/bin/micromamba`，2.9.0 |
 | MuJoCo 环境 | `/mnt/yuanyue/envs/go2-mujoco` |
 | Isaac 环境 | `/mnt/yuanyue/envs/go2-isaac` |
 | Isaac Lab | `/mnt/yuanyue/IsaacLab`，`b0542fe2d45bf91c4e1d9ef6952b9c709c80b4e8` |
 | Isaac 启动器 | `/mnt/yuanyue/bin/isaac-python` |
+| 最新模型包、报告与录像 | `/mnt/yuanyue/data/box-skills-eval/` |
+| 训练文本日志 | `/mnt/yuanyue/logs/skill-retraining/` |
 
-MuJoCo 环境为 Python 3.11.16、MuJoCo 3.12.0、PyTorch 2.7.0+cpu、NumPy 2.4.6，`pip check` 通过。Isaac 环境为 Python 3.11.16、Isaac Sim 5.1.0.0、Isaac Lab 0.54.4、isaaclab_rl 0.5.2、RSL-RL 5.0.1、PyTorch 2.7.0+cu128、NumPy 1.26.0。
+2026-09-15包元数据核对：MuJoCo环境为Python3.11.16、MuJoCo3.12.0、PyTorch2.7.0+cpu、NumPy2.4.6、imageio2.37.4、imageio-ffmpeg0.6.0，`pip check` 通过。Isaac环境为Python3.11.16、Isaac Sim5.1.0.0、Isaac Lab0.54.4、RSL-RL5.0.1、PyTorch2.7.0+cu128、NumPy1.26.0；GPU仍为两张RTX4090，驱动580.82.07。
 
 新 Isaac 环境只剩一个已知元数据冲突：Isaac Sim 固定的 `fastapi==0.115.7` 要求 `starlette<0.46.0`，而固定的 Isaac Lab 要求 `starlette==0.49.1`。本轮没有为此修改上游源码或 GPU 驱动；真实训练已通过，但不能宣称依赖完全无冲突或相关 Web 服务已验证。
+
+2026-09-15重新执行Isaac `pip check` 仍仅报告上述冲突；本次只更新文档，未调整依赖。
 
 ## 3. 下载代理
 
@@ -43,6 +53,7 @@ mihomo v1.19.30 由 runit 管理，实际服务目录为 `/opt/devmachine/init/s
 - 控制接口只监听 `127.0.0.1:9090` 并启用密钥；TUN 关闭。
 - 订阅与节点配置只放在服务器私有目录，文件权限为 `600`，本文不记录订阅 URL、节点密码或控制密钥。
 - 安装命令按需设置代理变量，没有改动全局路由或 SSH 授权密钥。
+- 2026-09-15发布008a795时，直连GitHub超时，使用临时 `127.0.0.1:17890 -> 服务器127.0.0.1:7890` SSH转发完成推送，并核对远端hash。该转发已关闭，不要假定仍存在或重复修改全局Git代理。
 - 实测 PyPI 680355 字节索引约 1.3 秒下载完成；176 MB PyTorch CPU wheel 下载约 13 MB/s。这不是固定带宽承诺。
 
 服务器上检查服务：
@@ -53,7 +64,9 @@ sv status /opt/devmachine/init/service/go2-mihomo
 
 若容器被重建，持久化程序和配置可以保留，但需要根据新的 PID 1 监控目录重新注册服务。
 
-## 4. 新机验收结果
+## 4. 初始部署验收（2026-09-11历史记录）
+
+以下结果对应原有低摩擦PUSH和低台阶CLIMB基线，不是新箱体流程的当前成功率，也不是2026-09-15重新执行的结果。
 
 | 检查 | 实际结果 |
 | --- | --- |
@@ -79,7 +92,7 @@ logs/rsl_rl/go2_migration_smoke/2026-09-11_17-50-59_gpu1_checked/model_0.pt
 
 ## 5. 已验证的 GPU 启动方式
 
-该双卡容器中，保持全部 GPU 可见，同时显式指定仿真、策略和渲染设备。下面命令均在新服务器执行，仍是独立的最小冒烟，不会替换最终 actor：
+该双卡容器中，保持全部GPU可见，同时显式指定仿真、策略和渲染设备。下面保留重建或排错所用的最小冒烟示例；现有环境已验证，不因阅读交接而自动重跑或开始训练：
 
 ```bash
 cd /mnt/yuanyue/GO2-ARX5-MUJOCO
@@ -89,7 +102,13 @@ env -u CUDA_VISIBLE_DEVICES /mnt/yuanyue/bin/isaac-python scripts/rsl_rl/train.p
 
 只指定 `--device cuda:1` 会设置环境设备，但当前训练脚本的非分布式路径不会因此自动修改 `agent_cfg.device`；因此需要同步传入 `agent.device=cuda:1`。不要把适用于纯 PyTorch 的单卡掩码经验直接当成 Omniverse/Vulkan 的设备映射规则。
 
-## 6. 原始训练产物
+## 6. 模型与训练产物
+
+最新组合所需包：`push-height020-stop200-bundle`、`climb-prepared-ground499-bundle`、`climb-prepared-gaps399-bundle`，均位于 `/mnt/yuanyue/data/box-skills-eval/`，不在Git。完整索引为 `continuous-climb-validation-v2.json`；最终录像 `box-to-platform-final-seed500.mp4`（约29.70s、743帧、25 FPS），同目录保留JSON和预览。新模型需要包内参数、起步分布和manifest，不应只带走一个 `.pt`。
+
+复现入口为 [run_box_support_sequence.py](../mujoco/run_box_support_sequence.py)，只对子进程统一AVX2、MKL、oneDNN与单线程设置。默认自动指令路径曾使同一权重在本地得到29/32、服务器27/32；显式入口后两边均29/32且逐回合结局一致。命令和边界见 [主交接](AGENT_HANDOFF_CN.md)。
+
+以下是迁移保留的旧低台阶CLIMB checkpoint：
 
 已从旧服务器复制 `model_1499.pt`、`params/env.yaml` 和 `params/agent.yaml` 到：
 
@@ -99,7 +118,7 @@ env -u CUDA_VISIBLE_DEVICES /mnt/yuanyue/bin/isaac-python scripts/rsl_rl/train.p
 
 checkpoint 两端 SHA-256 一致：`9206fd87d72377c42d78334938d050be08067ad488eeda7fcaa25ebdf5c68674`。此次没有同步所有历史 TensorBoard events、视频和其他中间 checkpoint；旧服务器原文件保持不变。
 
-## 7. N1 首步交付
+## 7. N1 首步交付（历史记录）
 
 - 新增 [SkillTransition](../mujoco/reconfigurable_navigation/data/transition.py) 和 executor 的可选 `on_transition` 回调，旧 `SkillExecutionRecord` 和默认运行接口保持兼容。
 - 记录动作、前后观测的独立拷贝、前序技能、状态、仿真开始/结束时间及中断标志。CLIMB 的 0.5 秒准备阶段计入总耗时。
@@ -113,7 +132,7 @@ checkpoint 两端 SHA-256 一致：`9206fd87d72377c42d78334938d050be08067ad488ee
 /mnt/yuanyue/data/n1-boundary/complex-course-twpEPA.jsonl
 ```
 
-这是 10 个固定课程分布 episode 的合约验证数据，不是 500-1000 条 pilot 已完成，也不是可泛化的正式训练集。
+这份50条数据本身只是10个固定课程episode的边界验证，不是完整pilot或正式训练集；后续另有600请求/542执行的快照候选pilot及N2通道数据，见文首链接。它们仍不能替代多场景族泛化和正式数据划分。
 
 在新服务器生成新文件：
 

@@ -1,15 +1,19 @@
-# GO2-ARX5 CLIMB 训练记录
+# GO2-ARX5 低台阶 CLIMB 历史训练记录
 
-最后验证日期：2026-09-10
+文档范围更新：2026-09-15；下述实验验证日期：2026-09-10。本次只整理交接边界，没有重跑下述实验。
 
-## 当前结论
+本文记录旧 `GO2-ARX5-Climb` 的低台阶策略 `policy_iter1499.pt`，不是当前移动箱高台候选。当前代码发布基线008a795、机器状态和后续任务见 [主交接](AGENT_HANDOFF_CN.md)，新的单箱、连续起步及间隙训练见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md)。当前完整自由箱到40 cm高台流程29/32，使用三份非Git模型包，尚未接入生产executor；高台actor单独原生验收仍未达标。
+
+当前服务器为 `go2-yuanyue`（端口46308、`/mnt/yuanyue`）；下述 `go2-4090` 和 `/mnt/miaojigui` 仅用于追溯历史。旧checkpoint及参数已迁移到 `/mnt/yuanyue/GO2-ARX5-MUJOCO/logs/rsl_rl/go2_arx5_climb/2026-09-10_15-03-49/`，不必重新训练该接受基线。
+
+## 低台阶基线结论
 
 - 独立 Isaac 任务 `GO2-ARX5-Climb` 和 `GO2-ARX5-Climb-Play` 已实现。
 - RTX 4090 上的 4096 环境正式训练已完成至迭代 1499。
 - Isaac 原生评估表明最终策略能够在台阶课程中稳定运行并产生明显抬升。
 - 最终 actor 已导出为 TorchScript 和 ONNX，并下载到本地。
 - 最终 actor 已在本地 MuJoCo 低台阶场景中通过 20 秒完整穿越，CLIMB Sim-to-Sim 已通过当前阶段验收。
-- CLIMB 已解除复杂任务 executor 的集成阻塞，但仍需在集成后补随机化回归。
+- 该旧CLIMB已接入生产executor，后续切换和旧复杂课程各10/10；这不代表新的移动箱支撑流程已生产集成。
 
 ## 任务设计
 
@@ -33,7 +37,7 @@
 - Actor/critic observation group：显式使用 `policy`。
 - 训练日志名：`go2_arx5_climb`。
 
-## 远程位置
+## 原训练位置（旧单卡服务器）
 
 - 训练主机：OpenSSH alias `go2-4090`。
 - 训练 worktree：`/mnt/miaojigui/worktrees/go2-climb`。
@@ -122,12 +126,12 @@ cd /home/yuanyue/re-nav/GO2-ARX5-MUJOCO
 - `joint2/joint3` soft-limit 初态 `0.15 rad`。
 - 策略从 reset 立即接管，不使用 Flat demo 的 3 秒 hold。
 - Isaac policy/action 关节顺序和 MuJoCo 关节映射。
-- Isaac `DelayedPDActuator` 的 physics-step 延迟和 reset 零目标缓冲。
+- 旧部署基线保留的physics-step延迟和reset零目标缓冲契约。新Box任务已按当前Isaac实现改为首命令填满缓冲，不能把本文旧契约套到新Box runtime。
 - USD 腿部关节速度限制，包括小腿 `15.7 rad/s` 限制下的位置积分。
 - CLIMB 训练配置中的机械臂 PD 增益和未裁剪 joint target。
 - 使用 free-joint `qvel` 构造 body-frame root velocity observation。
 
-根因是本地 runtime 未复现训练时的启动执行器语义，并且通过 `mj_objectVelocity` 得到了与 Isaac root velocity 不一致的第二帧观测。修复后，最终 actor 在固定低台阶场景中的 20 秒结果为：
+当时诊断集中于旧runtime的启动契约及通过 `mj_objectVelocity` 构造的第二帧root velocity不一致。下表是该旧profile的实测结果，不构成当前Isaac缓冲实现的通用定义；新Box profile还分别修正了训练资产惯量、安装位置、法向力和首目标缓冲，见箱体训练记录。
 
 | Command | X displacement | Final base height | Min base height | Base contact |
 | ---: | ---: | ---: | ---: | ---: |
@@ -149,7 +153,7 @@ cd /home/yuanyue/re-nav/GO2-ARX5-MUJOCO
 - 生产 `OraclePlanner` 已根据 PLATFORM entry/landing portal 自动生成 CLIMB。
 - `mujoco/check_complex_course.py --seeds 10` 的真实 `NAV -> PUSH -> NAV -> CLIMB -> NAV` 课程已通过 `10/10`。
 
-## 下一步
+## 原后续方向（历史）
 
 1. 扩大 actuator delay、初始姿态、箱体位置和台阶高度随机化回归。
 2. 从任意场景网格自动提取 PLATFORM entry/landing portal。
@@ -157,4 +161,4 @@ cd /home/yuanyue/re-nav/GO2-ARX5-MUJOCO
 4. 评估 JUMP 是否进入下一阶段；当前尚无可执行 Jump actor/runtime。
 5. 保持当前跳跃/前扑式 CLIMB 动作风格，按任务成功和落稳验收。
 
-当前不需要重新训练 CLIMB；后续工作转为复杂任务集成和泛化验证。
+上述方向是低台阶阶段的安排，不是当前任务队列。当前优先收敛seed510/525/528的高台接触失败、验证更宽工况并准备新流程集成；JUMP与世界模型工作继续暂缓。原接受的低台阶/20 cm策略保持基线，新增能力通过独立候选验证。

@@ -14,6 +14,7 @@
 
 [English](README.md) | [中文](README_CN.md)
 
+GO2-ARX5 分支接续请先阅读 [当前项目交接](docs/AGENT_HANDOFF_CN.md)、[服务器状态](docs/YUANYUE_SERVER_STATUS_CN.md) 和 [箱体技能验收](docs/BOX_SKILL_TRAINING_CN.md)。新候选权重、状态数据与录像不随 Git 克隆；下方是框架通用说明，环境固定版本和复现步骤以本分支交接为准。
 
 **面向腿足操作机器人的强化学习训练框架**
 
@@ -202,15 +203,16 @@ python mujoco/deploy/deploy_mujoco/go2_piper/go2_piper.py config.yaml
 
 ## 文档
 
+- [当前项目交接：新会话从这里开始](docs/AGENT_HANDOFF_CN.md)
 - [环境参数、项目结构与关键文件说明](docs/ENV_DETAILS_CN.md)
 - [双 RTX 4090 服务器依赖环境与迁移指南](docs/SERVER_MIGRATION_2X4090_CN.md)
 - [可重构导航后续开发规划](docs/RECONFIGURABLE_NAVIGATION_NEXT_PLAN_CN.md)
-- [会话压缩与跨服务器 Agent 交接](docs/AGENT_HANDOFF_CN.md)
 - [yuanyue 双卡服务器部署与开发记录](docs/YUANYUE_SERVER_STATUS_CN.md)
 - [N1 技能快照、物理重放与候选 Pilot](docs/N1_REPLAY_DATA_CN.md)
 - [N1 技能过程事件、失败原因与本地验证](docs/N1_SKILL_EVENTS_CN.md)
 - [N2 参数化通道、物理扫描与候选数据](docs/N2_PASSAGE_SCENES_CN.md)
 - [正常摩擦推箱与低箱攀爬训练进展](docs/BOX_SKILL_TRAINING_CN.md)
+- [旧低台阶 CLIMB 训练历史](docs/CLIMB_TRAINING_CN.md)
 
 
 ---
