@@ -20,6 +20,8 @@ The accepted 29/32 moving-support composite now uses the shared executor and N1 
 
 Parameterized layouts, family-grouped data, and budgeted rule-policy task labels are available in [the layout pilot](docs/BOX_SUPPORT_LAYOUTS_CN.md). A first offline pose-transition MLP has now been trained; see [the target framework and baseline](docs/WORLD_MODEL_BASELINE_CN.md). Its test pose accuracy and candidate selection did not beat the conditional baseline, so the rule planner remains in control.
 
+[Object model v2](docs/OBJECT_WORLD_MODEL_V2_CN.md) now adds BEV, masked object attention and four-layer Transformer dynamics, evaluated on 1,250 executed samples. One run slightly improved candidate selection over the statistical baseline; this is still offline, without an ensemble or learned closed-loop control.
+
 **A Reinforcement Learning (RL) framework for legged robots with manipulator arms**
 
 Legged robots with manipulation arms present unique challenges — coordinating locomotion and dexterous manipulation simultaneously. LeggedManip Lab addresses this by providing a unified RL training framework built on Isaac Lab, supporting whole-body locomotion-manipulation policy training and deployment across 7 robot platforms, including Flat and Whole-Body Control (WBC) training modes.

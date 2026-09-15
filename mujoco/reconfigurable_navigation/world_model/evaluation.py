@@ -71,7 +71,8 @@ def metrics(dataset, indices, predicted, probabilities):
 def selection_metrics(dataset, indices, predicted, probabilities):
     groups = {}
     for index in indices:
-        groups.setdefault(dataset["metadata"][index]["snapshot_sha256"], []).append(index)
+        metadata = dataset["metadata"][index]
+        groups.setdefault(metadata.get("snapshot_id") or metadata["snapshot_sha256"], []).append(index)
     selected_success, best_success, regrets = [], [], []
     for members in groups.values():
         members = np.asarray(members)

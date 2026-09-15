@@ -6,6 +6,8 @@
 
 最新参数化场景和可选 `--evaluate-suffix` 已完成 [场景族与任务标签pilot](BOX_SUPPORT_LAYOUTS_CN.md)。`--snapshot-first-only` 只为每回合首个技能存档，其他记录明确标记无快照；采集时应只选择有快照的索引。后续标签位于 `continuation`，预算截断使用unknown和代价下界，不混入负向可达性标签。
 
+对象模型v2新增 [内存分支采集入口](../mujoco/collect_object_world_data.py)：训练边界有独立 `snapshot_id`，仅代表归档有 `snapshot_file` 和文件SHA-256。没有归档的边界不能直接调用文件重放，应按记录的场景、seed和版本重新生成。加载器保留两种身份的区别并继续禁止同源数据跨集合，详见 [对象模型v2](OBJECT_WORLD_MODEL_V2_CN.md)。
+
 验证日期：2026-09-11。N1 实现基于 `6c71d1a`，代码已同步并在 yuanyue 服务器验证，发布版本以 Git 历史为准。本轮没有重新训练 actor；快照和 pilot 数据保留在服务器，不纳入 Git。
 
 2026-09-12 补充：控制步过程事件和失败原因已实现，schema v2 分别在本地与新服务器通过 32 项合约及物理数据验证，详见 [技能过程事件](N1_SKILL_EVENTS_CN.md)。下文 600 请求的服务器 pilot 是历史 v1 数据；新版服务器另有 60 请求验收，不能将两次结果混写。

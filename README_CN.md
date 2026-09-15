@@ -20,6 +20,8 @@ GO2-ARX5 分支接续请先阅读 [当前项目交接](docs/AGENT_HANDOFF_CN.md)
 
 参数化多布局、场景族划分和规则后续任务标签现已实现，数据入口见 [多布局与任务标签](docs/BOX_SUPPORT_LAYOUTS_CN.md)。首个离线MLP已训练，目标架构与评估见 [世界模型基线](docs/WORLD_MODEL_BASELINE_CN.md)；当前模型未达到替换规则规划器的要求。
 
+后续 [对象模型v2](docs/OBJECT_WORLD_MODEL_V2_CN.md) 已接入BEV、对象注意力和四层Transformer，在1250条执行样本上完成离线对照。单次候选选择略优于统计基线，仍保持规则控制；ensemble和学习闭环尚未实现。
+
 **面向腿足操作机器人的强化学习训练框架**
 
 腿足机器人与机械臂的协同控制面临独特挑战——需要同时协调运动与灵巧操作。LeggedManip Lab 基于 Isaac Lab 构建了统一的 RL 训练框架，支持 7 种机器人平台的全身运动-操作策略训练与部署，包含平坦地形、全身控制（WBC）等训练模式。

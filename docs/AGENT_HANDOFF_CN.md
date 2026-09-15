@@ -4,13 +4,23 @@
 
 ## 当前快照
 
-有界几何候选发布基线为 `9c069e44ffd1a8f125b7298314649e8146d3b1ea`，分支 `feature/reconfigurable-navigation-oracle`；此前f311203是executor/快照集成。本文件记录随后完成的参数化布局、后续评估和首个离线世界模型基线，最新发布以实际Git历史为准，运行源码以记录中的SHA-256为准。324b7a7是更早的交接文档发布，008a795是箱体技能训练代码发布。
+参数化布局、后续评估和首个MLP基线已发布为 `a748e53a60907054d9e8cd8bd8407ed5a16fa114`，分支 `feature/reconfigurable-navigation-oracle`，GitHub hash已核对。本文件同时记录其后完成的对象模型v2，最新发布以实际Git历史为准，运行源码以记录中的SHA-256为准。9c069e4是有界候选发布，f311203是executor集成。
 
-最新世界模型进度：原方案仍是BEV CNN + Object Transformer + 4-6层Transformer dynamics + 3-5模型ensemble。本轮完成N3的第一步，训练了独立schema `box_support_tabular_v1` 的92维起点输入、两层64单元MLP，预测机器人/箱体位姿增量、耗时、技能成功、非法碰撞和规则后续任务成功。它不是完整目标架构，也没有接入在线控制。框架与结果见 [世界模型基线](WORLD_MODEL_BASELINE_CN.md)。
+最新进度：已实现并训练单个对象中心模型：8x128x128特权BEV、32x32对象token及独立mask、72项本体状态加有效位、四层CNN、一层对象注意力和四层Transformer dynamics，宽128、4 heads。模型与残差MLP共享训练统计先验和本体信息，仍预测原位姿/耗时/三个概率头；尚无ensemble、多步学习规划或在线控制。实现和限制见 [对象模型v2](OBJECT_WORLD_MODEL_V2_CN.md)。
+
+扩样为12布局、60个不重叠起点（700-759），规则教师43/60完成任务，产生250个技能边界和1500请求：1130技能成功、120物理失败、250拒绝。1250条实际执行样本为train490/validation420/test340，PUSH300、NAV475、CLIMB475。新采集器在内存快照中评估分支并核对现场状态不变，原动作及整任务后续逐项匹配；只保存11个代表归档，其他239个边界不冒充归档文件。
+
+单次固定seed7对照：对象Transformer由validation选第18轮，残差MLP选第6轮。测试68个技能起点的候选选择成功数为对象模型56、统计基线55、残差MLP48，当前候选集最优65。对象模型机器人/箱体位置RMSE0.164/0.060m，统计基线0.160/0.064m；非法碰撞Brier0.0597对0.0919，任务Brier0.1319对0.1516。增益尚小且未重复多种子，保持规则Oracle控制，不重估原29/32技能基线。
+
+22项相关检查、CUDA前后向、零残差等于统计先验、六条代表归档零容差重放通过。Transformer未通过最初的严格CPU/GPU张量容差；同张量对照确认来自设备内核，GPU重载匹配保存预测。全部1250条预测的最大差异为位置3.34e-5m、yaw2.67e-5rad、时间0.00188s、概率0.000145，250组候选选择一致，不能描述成跨设备位级相同。
+
+v2产物根为本地 `/home/yuanyue/re-nav/artifacts/object-world-model-v2-20260915/`、服务器 `/mnt/yuanyue/data/object-world-model-v2-20260915/`；入口 `comparison-seed7/comparison.json`、`data/manifest.json`、`numeric-validation.json`。模型、JSON和数值报告已在本地，11个物理归档只在服务器。GPU0用于纯PyTorch训练，GPU1已有任务未改动，低层三份actor冻结。
+
+此前MLP基线：独立schema `box_support_tabular_v1` 使用92维起点输入和两层64单元MLP，保留作历史对照，见 [世界模型基线](WORLD_MODEL_BASELINE_CN.md)。
 
 扩样使用既定六布局和新seed600/601：12回合8成功，保存48个技能起点；240候选为171成功、21物理失败、48拒绝。192条实际执行样本覆盖PUSH48、NAV72、CLIMB72，train/validation/test分别80/64/48。固定seed7训练，验证集选中第15轮，测试只在最后评估；10项模型/数据契约检查通过，模型保存恢复本地零误差，服务器192条预测在rtol1e-5/atol1e-6内复现。
 
-当前模型未达到接管规划要求：测试机器人/箱体位置RMSE为0.218/0.179m，按技能和目标类型的训练统计基线为0.103/0.077m；候选选择实际成功8/12，基线10/12，当前候选集最优11/12。虽然技能成功AUROC为0.959，Brier与位姿/选择结果仍未优于基线。不要根据这一次test反复调参后再称其为未见测试，保持规则Oracle控制。
+该旧MLP基线未达到接管规划要求：测试机器人/箱体位置RMSE为0.218/0.179m，按技能和目标类型的训练统计基线为0.103/0.077m；候选选择实际成功8/12，基线10/12，当前候选集最优11/12。虽然技能成功AUROC为0.959，Brier与位姿/选择结果仍未优于基线。它与v2使用不同数据，不能直接把两个成功率当作同一测试上的提升。
 
 本轮产物本地 `/home/yuanyue/re-nav/artifacts/world-model-v1-20260915/`，服务器 `/mnt/yuanyue/data/world-model-v1-20260915/`，重点是 `model-seed7/{model.pt,report.json,predictions.jsonl}` 与 `candidates/manifest.json`。本地有JSON和模型，48个完整物理快照只在服务器。低层三份actor保持冻结，世界模型权重不纳入Git。
 
@@ -40,7 +50,7 @@ f311203集成阶段的数据有10条转换及10个完整快照，覆盖成功509
 
 原生单策略状态：第一阶段prepared_ground499为32/32、31/32；最终高台gaps399为21/32（1.5cm间隙）、22/32（6cm），仍是diagnostic候选，不能用29/32组合结果冒充高台actor独立通过。高台训练400更新、921.12s已结束；当前无训练需要等待，不要重复启动旧active记录。起步数据只用于独立Isaac训练回合reset，MuJoCo技能切换不改写物理状态。训练seed16-31状态池与原生评估seed200-215状态池分离，导出包保存原始数据及hash；本轮保留原接受权重，未替换生产默认actor/Oracle。
 
-当前下一步：诊断MLP相对统计基线的位姿和排序差距，扩展族内样本与对象关系表示，在validation迭代并保留新测试起点；随后推进目标BEV/Object Transformer及ensemble。基线已经训练，不要重复声称世界模型完全未实现，也不能声称已完成世界模型规划。低层29/32继续冻结，PUSH仍限正X推面，VLM、RGB-D、JUMP和实机迁移后置。
+当前下一步：重复初始化并评估ensemble，检查概率校准、漏报和多步误差，先确认候选选择的小幅增益可重复，再进入shadow旁路。BEV、对象注意力和单步Transformer已经实现，不要重做；模型还没有接管规划。低层29/32继续冻结，PUSH仍限正X推面，VLM、RGB-D、JUMP和实机迁移后置。
 
 ## 历史阶段记录
 
@@ -94,10 +104,10 @@ CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零�
 | 旧生产基线 | NAV-PUSH-NAV、NAV-CLIMB-NAV、清除入口后爬固定台阶；仍保留 |
 | 当前规划方式 | MuJoCo 真值状态 + 规则式 Oracle + 栅格/A*；每次仅执行最新计划的首个技能 |
 | 仍依赖人工配置 | 场景语义、部分推箱目标、平台 entry/landing portal |
-| 世界模型/VLM/视觉 | 已训练离线位姿MLP，但未达到规划要求；目标Transformer ensemble、VLM和RGB-D闭环未实现 |
+| 世界模型/VLM/视觉 | 已训练MLP和单个BEV/对象Transformer；ensemble、学习闭环、VLM及RGB-D未实现 |
 | 高台任务的真实进度 | 接受组合29/32，已接入共享executor及N1快照，原生高台actor未独立达标 |
 | 当前迁移状态 | 双4090已部署，分卡并行训练和MuJoCo复现完成；DDP未验证 |
-| 下一项开发 | 改进数据和对象关系表示，验证优于统计基线，再推进Transformer ensemble与shadow评估 |
+| 下一项开发 | 重复初始化/ensemble、风险校准及多步评估，通过后进入shadow旁路 |
 
 ## 3. 用户已经确认的方向
 

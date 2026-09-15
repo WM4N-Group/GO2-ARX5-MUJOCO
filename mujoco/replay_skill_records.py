@@ -36,6 +36,8 @@ def replay_record(record: dict, source: Path, repeats: int = 3, atol: float = 1.
     if record["schema_version"] not in (1, 2):
         raise ValueError("Unsupported transition schema")
     metadata = record["metadata"]
+    if not metadata.get("full_snapshot_available", True) or "snapshot_file" not in metadata:
+        raise ValueError("This boundary has no persisted physics archive; regenerate its scene/seed or select an archived record")
     snapshot_path = source.parent / metadata["snapshot_file"]
     if hashlib.sha256(snapshot_path.read_bytes()).hexdigest() != metadata["snapshot_sha256"]:
         raise ValueError("Snapshot file checksum does not match the recorded transition")

@@ -10,6 +10,8 @@
 
 首个离线位姿MLP已经训练，代码在 [world_model](world_model/)，框架与未通过的规划质量对照见 [世界模型基线](../../docs/WORLD_MODEL_BASELINE_CN.md)。目标对象Transformer ensemble尚未实现，当前执行器未使用学习模型选动作。
 
+单个BEV/对象Transformer现已完成，见 [对象模型v2](../../docs/OBJECT_WORLD_MODEL_V2_CN.md)。原MLP结果保留作历史对照，ensemble和在线模型选动作仍未实现。
+
 ## 保留的生产原型功能
 
 - GO2-ARX5 Blocked Passage 专用 MuJoCo 场景。

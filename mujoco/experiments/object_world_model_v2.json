@@ -1,0 +1,14 @@
+{
+  "aligned": {},
+  "aligned_far": {"platform_pose": [3.38, 0.0, 0.0]},
+  "left": {"platform_pose": [3.3, 0.04, 0.0]},
+  "left_far_narrow": {"platform_pose": [3.36, 0.06, 0.0], "platform_size": [2.0, 1.5, 0.4]},
+  "right": {"platform_pose": [3.3, -0.04, 0.0]},
+  "right_near_wide": {"platform_pose": [3.24, -0.06, 0.0], "platform_size": [2.0, 1.7, 0.4]},
+  "aligned_near_v2": {"platform_pose": [3.26, 0.0, 0.0], "platform_size": [2.0, 1.7, 0.4]},
+  "aligned_mid_v2": {"platform_pose": [3.32, 0.0, 0.0], "platform_size": [2.0, 1.55, 0.4]},
+  "left_near_v2": {"platform_pose": [3.26, 0.02, 0.0], "platform_size": [2.0, 1.7, 0.4]},
+  "left_mid_v2": {"platform_pose": [3.32, 0.05, 0.0], "platform_size": [2.0, 1.55, 0.4]},
+  "right_near_v2": {"platform_pose": [3.26, -0.02, 0.0], "platform_size": [2.0, 1.7, 0.4]},
+  "right_mid_v2": {"platform_pose": [3.32, -0.05, 0.0], "platform_size": [2.0, 1.55, 0.4]}
+}
