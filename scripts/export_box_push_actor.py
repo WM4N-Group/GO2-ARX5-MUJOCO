@@ -9,6 +9,7 @@ import shutil
 
 import torch
 
+from skill_export_provenance import piper_robot_provenance
 
 ROOT = Path(__file__).resolve().parents[1]
 MDP = ROOT / "source/LeggedManip_Lab/LeggedManip_Lab/tasks/manager_based/leggedmanip_lab/mdp"
@@ -23,6 +24,7 @@ def main():
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--evaluation-json", type=Path, nargs="+", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--task", choices=("GO2-ARX5-Box-Push-Hybrid-Play", "GO2-PIPER-Box-Push-Hybrid-Play"), default="GO2-ARX5-Box-Push-Hybrid-Play")
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error("Output directory must not already exist")
@@ -30,14 +32,20 @@ def main():
     evaluations = []
     for path in args.evaluation_json:
         result = json.loads(path.read_text())
-        if result["checkpoint_sha256"] != checkpoint_hash or result["task"] != "GO2-ARX5-Box-Push-Hybrid-Play":
+        if result["checkpoint_sha256"] != checkpoint_hash or result["task"] != args.task:
             raise ValueError("Evaluation does not belong to this hybrid PUSH checkpoint")
-        if result["requested_episodes"] < 32 or result["incomplete_episodes"] or result["successful_episodes"] / result["requested_episodes"] < 29 / 32:
+        minimum_success = 30 / 32 if "PIPER" in args.task else 29 / 32
+        if result["requested_episodes"] < 32 or result["incomplete_episodes"] or result["successful_episodes"] / result["requested_episodes"] < minimum_success:
             raise ValueError("Evaluation has not passed the independent success gate")
+        if result.get("neutral_arm_diagnostic") or result.get("neutral_push_command_diagnostic"):
+            raise ValueError("Diagnostic action/observation overrides cannot establish acceptance")
         for name, expected in result["control_sha256"].items():
             if Path(name).name != name or sha256(MDP / name) != expected:
                 raise ValueError(f"Controller source differs from evaluation: {name}")
         evaluations.append({"file": path.name, "sha256": sha256(path), "result": result})
+    if "PIPER" in args.task and len({item["result"]["seed"] for item in evaluations}) < 2:
+        raise ValueError("PIPER acceptance requires two independent evaluation seeds")
+    robot_provenance = piper_robot_provenance(ROOT, args.checkpoint, [item["result"] for item in evaluations]) if "PIPER" in args.task else None
     load_actor = runpy.run_path(str(ROOT / "scripts/rsl_rl/initialization.py"))["actor_from_state_dict"]
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     actor = load_actor(checkpoint["actor_state_dict"])
@@ -64,7 +72,9 @@ def main():
         with (args.output_dir / evaluation["file"]).open("x") as stream:
             json.dump(evaluation["result"], stream, indent=2, allow_nan=False)
     manifest = {
-        "schema_version": 1, "task": "GO2-ARX5-Box-Push-Hybrid-Play",
+        "schema_version": 1, "task": args.task,
+        "native_validation_passed": True,
+        "robot_provenance": robot_provenance,
         "checkpoint_sha256": checkpoint_hash, "policy_sha256": sha256(policy_path),
         "actor_input_dimension": 226, "actor_output_dimension": 12,
         "actor_observation_groups": ["policy", "box"],

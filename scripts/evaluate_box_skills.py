@@ -12,15 +12,17 @@ from isaaclab.app import AppLauncher
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--task", required=True, choices=("GO2-ARX5-Box-Climb-Play", "GO2-ARX5-Box-Push-Play", "GO2-ARX5-Box-Push-Hybrid-Play"))
+parser.add_argument("--task", required=True, choices=("GO2-ARX5-Box-Climb-Play", "GO2-ARX5-Box-Push-Play", "GO2-ARX5-Box-Push-Hybrid-Play", "GO2-PIPER-Box-Climb-Play", "GO2-PIPER-Box-Push-Hybrid-Play"))
 source_group = parser.add_mutually_exclusive_group(required=True)
 source_group.add_argument("--checkpoint", type=Path)
+source_group.add_argument("--actor-policy", type=Path, help="Diagnostic: directly evaluate a provenance-recorded TorchScript skill actor.")
 source_group.add_argument("--locomotion-policy", type=Path, help="Use the frozen 210-input NAV actor for legs; requires --arm-ik.")
 parser.add_argument("--output-json", type=Path, required=True)
 parser.add_argument("--num_envs", type=int, default=32)
 parser.add_argument("--steps", type=int, default=1200)
 parser.add_argument("--episodes-per-env", type=int, default=1)
 parser.add_argument("--episode-length-s", type=float)
+parser.add_argument("--preparation-seconds", type=float, default=0.0)
 parser.add_argument("--seed", type=int, default=100)
 parser.add_argument("--box-height", type=float)
 parser.add_argument("--approach-height", type=float, default=0.0)
@@ -37,12 +39,19 @@ parser.add_argument("--box-friction", type=float)
 parser.add_argument("--press-depth", type=float)
 parser.add_argument("--push-distance", type=float)
 parser.add_argument("--arm-ik", action="store_true", help="Diagnostic: replace the learned arm output with rate-limited differential IK.")
+parser.add_argument("--neutral-arm", action="store_true", help="Diagnostic: hold the nominal arm pose for CLIMB.")
+parser.add_argument("--neutral-push-command", action="store_true", help="Diagnostic: keep the NAV actor end-effector command at its neutral reference during PUSH.")
+parser.add_argument("--observation-noise", action="store_true", help="Diagnostic: retain training observation noise during evaluation.")
 parser.add_argument("--video-path", type=Path)
 parser.add_argument("--deployment-actor", type=Path, help="Compare exported TorchScript outputs on every evaluated observation.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 if args.arm_ik and "Push" not in args.task:
     parser.error("--arm-ik only applies to PUSH")
+if args.neutral_arm and "Climb" not in args.task:
+    parser.error("--neutral-arm only applies to CLIMB")
+if args.neutral_push_command and "Push" not in args.task:
+    parser.error("--neutral-push-command only applies to PUSH")
 if args.arm_ik and "Hybrid" in args.task:
     parser.error("The hybrid task already contains its arm controller")
 if args.locomotion_policy is not None and not args.arm_ik:
@@ -55,6 +64,10 @@ if args.video_path is not None:
     args.enable_cameras = True
 if args.steps < 1 or args.num_envs < 1 or args.episodes_per_env < 1:
     parser.error("Evaluation size must be positive")
+if not math.isfinite(args.preparation_seconds) or args.preparation_seconds < 0.0:
+    parser.error("Preparation duration must be finite and nonnegative")
+if args.preparation_seconds and ("Climb" not in args.task or args.episodes_per_env != 1):
+    parser.error("Explicit preparation currently supports one CLIMB episode per environment")
 for value in (args.box_height, args.box_mass, args.box_friction, args.episode_length_s, args.landing_length, args.landing_width, args.start_clearance, args.surface_friction):
     if value is not None and (not math.isfinite(value) or value <= 0.0):
         parser.error("Physical parameters must be positive and finite")
@@ -84,6 +97,7 @@ def main():
     config.scene.num_envs = args.num_envs
     config.seed = args.seed
     config.sim.device = args.device
+    config.observations.policy.enable_corruption = args.observation_noise
     if args.episode_length_s is not None:
         config.episode_length_s = args.episode_length_s
     climbing = "Climb" in args.task
@@ -143,6 +157,9 @@ def main():
     if args.locomotion_policy is not None:
         policy = torch.jit.load(str(args.locomotion_policy), map_location=args.device).eval()
         observation_groups = ["policy"]
+    elif args.actor_policy is not None:
+        policy = torch.jit.load(str(args.actor_policy), map_location=args.device).eval()
+        observation_groups = agent_config.obs_groups["actor"]
     else:
         checkpoint = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
         load_actor = runpy.run_path(str(Path(__file__).resolve().parent / "rsl_rl/initialization.py"))["actor_from_state_dict"]
@@ -280,6 +297,8 @@ def main():
             if video is not None and step % 2 == 0:
                 video.append_data(base.render())
             actor_input = torch.cat([observation[name] for name in observation_groups], dim=-1)
+            if args.neutral_push_command:
+                actor_input[:, 189:210] = actor_input.new_tensor((0.5, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0)).repeat(3)
             actions = policy(actor_input)
             if deployment_actor is not None:
                 deployed_actions = deployment_actor(actor_input)
@@ -288,6 +307,11 @@ def main():
                 deployment_comparisons += int(active.sum().item())
             if arm_controller is not None:
                 actions = arm_controller.apply(actions)
+            if args.neutral_arm:
+                actions = actions.clone()
+                actions[:, 12:] = 0.0
+            if step * base.step_dt < args.preparation_seconds:
+                actions = torch.zeros_like(actions)
             observation, _rewards, dones, _extras = env.step(actions)
             done = dones.bool()
             if arm_controller is not None:
@@ -333,6 +357,25 @@ def main():
             "push_approach_distance": config.push_approach_distance,
         }
     mdp_directory = Path(box_push.__file__).resolve().parent
+    repository = Path(__file__).resolve().parents[1]
+    robot_asset_directory = Path(config.scene.robot.spawn.usd_path).resolve().parent
+    robot_asset_paths = sorted(robot_asset_directory.rglob("*.usd"))
+    robot_asset_paths.extend(robot_asset_directory.glob("*.py"))
+    actual_physics.update(
+        robot_asset_sha256={str(path.relative_to(repository)): hashlib.sha256(path.read_bytes()).hexdigest() for path in robot_asset_paths},
+        robot_joint_names=list(robot.joint_names),
+        robot_effort_limits=robot.data.joint_effort_limits[0].tolist(),
+        robot_joint_defaults=robot.data.default_joint_pos[0].tolist(),
+    )
+    if "Hybrid" in args.task:
+        controller = base.action_manager.get_term("joint_pos").controller
+        actual_physics["controller_contract"] = {
+            "lock_arm_on_contact": controller.lock_arm_on_contact,
+            "align_hand_orientation": getattr(controller, "align_hand_orientation", False),
+            "hand_pitch": getattr(config.actions.joint_pos, "hand_pitch", 0.0),
+            "approach_distance": config.push_approach_distance,
+            "press_depth": config.push_press_depth, "control_dt": base.step_dt,
+        }
     control_files = ("box_climb.py", "box_rewards.py", "box_terrain.py") if climbing else ("box_push.py", "box_push_control.py", "box_rewards.py")
     if climbing and config.prepared_start_path:
         control_files += ("climb_start_states.py",)
@@ -342,11 +385,17 @@ def main():
         control_files += ("box_push_ik.py", "box_push_actions.py")
     result = {
         "schema_version": 4, "episodes_per_env": args.episodes_per_env,
+        "neutral_arm_diagnostic": args.neutral_arm,
+        "neutral_push_command_diagnostic": args.neutral_push_command,
+        "preparation_seconds": args.preparation_seconds,
+        "observation_noise_diagnostic": args.observation_noise,
         "terminal_states": terminal_states,
         "termination_flag_names": list(base.termination_manager.active_terms),
         "requested_episodes": args.num_envs * args.episodes_per_env,
         "incomplete_episodes": int((args.episodes_per_env - completions).sum().item()),
         "checkpoint_sha256": hashlib.sha256(args.checkpoint.read_bytes()).hexdigest() if args.checkpoint else None,
+        "actor_policy": str(args.actor_policy) if args.actor_policy else None,
+        "actor_policy_sha256": hashlib.sha256(args.actor_policy.read_bytes()).hexdigest() if args.actor_policy else None,
         "locomotion_policy": str(args.locomotion_policy) if args.locomotion_policy else None,
         "locomotion_policy_sha256": hashlib.sha256(args.locomotion_policy.read_bytes()).hexdigest() if args.locomotion_policy else None,
         "evaluation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -358,7 +407,7 @@ def main():
         "episode_length_s": config.episode_length_s,
         "arm_controller": "trained_legs_with_ik_arm" if "Hybrid" in args.task else "differential_ik_gravity_diagnostic" if args.arm_ik else "learned_policy",
         "stand_until_arm_ready": args.locomotion_policy is not None or "Hybrid" in args.task,
-        "lock_arm_on_contact": args.locomotion_policy is not None or "Hybrid" in args.task,
+        "lock_arm_on_contact": base.action_manager.get_term("joint_pos").controller.lock_arm_on_contact if "Hybrid" in args.task else args.locomotion_policy is not None,
         "trace_env0": trace, "video_path": str(args.video_path) if args.video_path else None,
         "task": args.task, "checkpoint": str(args.checkpoint) if args.checkpoint else None, "seed": args.seed,
         "num_envs": args.num_envs, "steps": args.steps, "box_height": args.box_height,

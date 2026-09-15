@@ -43,3 +43,18 @@ gym.register(
     },
 )
 
+for task, environment, runner in (
+    ("Box-Push-Hybrid", "Go2PiperBoxPushHybridEnvCfg", "Go2PiperBoxPushHybridPPORunnerCfg"),
+    ("Box-Climb", "Go2PiperBoxClimbEnvCfg", "Go2PiperBoxClimbPPORunnerCfg"),
+):
+    for suffix, config_suffix in (("", ""), ("-Play", "_PLAY")):
+        gym.register(
+            id=f"GO2-PIPER-{task}{suffix}",
+            entry_point="isaaclab.envs:ManagerBasedRLEnv",
+            disable_env_checker=True,
+            kwargs={
+                "env_cfg_entry_point": f"{__name__}.box_env_cfg:{environment}{config_suffix}",
+                "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:{runner}",
+            },
+        )
+

@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from .box_climb_runtime import BoxClimbRuntime
-from .locomotion_runtime import MJ_POLICY_INDICES, POLICY_MJ_INDICES, projected_gravity
+from .locomotion_runtime import JOINT_NAMES, MJ_POLICY_INDICES, POLICY_MJ_INDICES, projected_gravity
 
 
 CONTROL_PATH = Path(__file__).resolve().parents[2] / "source/LeggedManip_Lab/LeggedManip_Lab/tasks/manager_based/leggedmanip_lab/mdp/box_push_control.py"
@@ -23,16 +23,24 @@ def batch(value):
 
 
 class BoxPushArmController:
-    def __init__(self, runtime, box_geom: int, goal: np.ndarray):
+    def __init__(self, runtime, box_geom: int, goal: np.ndarray, *, hand_body_name="x5_link6", mount_body_name="x5_base_link", hand_body_names=("x5_link6", "x5_link7", "x5_link8"), hand_offset=(0.15, 0.0, 0.0), align_hand_orientation=False, hand_pitch=0.0, approach_distance=0.10):
         self.runtime = runtime
         self.model, self.data = runtime.model, runtime.data
         self.box_geom = box_geom
         self.box_body = int(self.model.geom_bodyid[box_geom])
         self.box_size = self.model.geom_size[box_geom].copy() * 2.0
         self.goal = np.asarray(goal, dtype=np.float64).copy()
-        self.hand_body = runtime._body_id("x5_link6")
-        self.mount_body = runtime._body_id("x5_base_link")
-        self.hand_bodies = {runtime._body_id(f"x5_link{index}") for index in (6, 7, 8)}
+        self.hand_body = runtime._body_id(hand_body_name)
+        self.mount_body = runtime._body_id(mount_body_name)
+        self.hand_bodies = {runtime._body_id(name) for name in hand_body_names}
+        self.hand_offset = np.asarray(hand_offset, dtype=np.float64)
+        self.align_hand_orientation = align_hand_orientation
+        self.hand_pitch = hand_pitch
+        self.approach_distance = approach_distance
+        if not np.isfinite([hand_pitch, approach_distance]).all() or approach_distance <= 0:
+            raise ValueError("Invalid hand orientation or approach distance")
+        if self.hand_offset.shape != (3,) or not np.isfinite(self.hand_offset).all():
+            raise ValueError("Expected a finite three-dimensional hand offset")
         self.arm_qpos = runtime.joint_qpos_adr[12:]
         self.arm_dof = runtime.joint_dof_adr[12:]
         joint_ids = self.model.dof_jntid[self.arm_dof]
@@ -52,7 +60,7 @@ class BoxPushArmController:
 
     def hand_position(self):
         rotation = self.data.xmat[self.hand_body].reshape(3, 3)
-        return self.data.xpos[self.hand_body] + rotation @ np.array([0.15, 0.0, 0.0])
+        return self.data.xpos[self.hand_body] + rotation @ self.hand_offset
 
     def box_rotation(self):
         return self.data.geom_xmat[self.box_geom].reshape(3, 3)
@@ -64,9 +72,9 @@ class BoxPushArmController:
         position = self.data.geom_xpos[self.box_geom]
         rotation = self.box_rotation()
         local = rotation.T @ (self.hand_position() - position)
-        self.approached |= bool(CONTROL["side_approach_ready"](batch(local), self.box_size[0] / 2.0, 0.10)[0])
+        self.approached |= bool(CONTROL["side_approach_ready"](batch(local), self.box_size[0] / 2.0, self.approach_distance)[0])
         self.approached &= abs(local[2]) < 0.06
-        press = 0.02 if self.approached and not self.at_goal() else -0.10
+        press = 0.02 if self.approached and not self.at_goal() else -self.approach_distance
         return position + rotation @ np.array([-self.box_size[0] / 2.0 + press, 0.0, 0.0])
 
     def contacts(self):
@@ -126,9 +134,25 @@ class BoxPushArmController:
         self.locked &= not self.at_goal()
         self.motion_ready |= self.locked
         jacobian = np.zeros((3, self.model.nv))
-        mujoco.mj_jac(self.model, self.data, jacobian, None, position, self.hand_body)
+        angular_jacobian = np.zeros_like(jacobian) if self.align_hand_orientation else None
+        mujoco.mj_jac(self.model, self.data, jacobian, angular_jacobian, position, self.hand_body)
         arm_jacobian = jacobian[:, self.arm_dof]
-        delta = arm_jacobian.T @ np.linalg.solve(arm_jacobian @ arm_jacobian.T + 0.01 * np.eye(3), target - position)
+        error = target - position
+        if self.align_hand_orientation:
+            box_quaternion, actual_quaternion, inverse_actual = np.zeros(4), np.zeros(4), np.zeros(4)
+            mujoco.mju_mat2Quat(box_quaternion, self.box_rotation().ravel())
+            mujoco.mju_mat2Quat(actual_quaternion, self.data.xmat[self.hand_body])
+            desired_quaternion, difference = np.zeros(4), np.zeros(4)
+            mujoco.mju_mulQuat(desired_quaternion, box_quaternion, np.array([np.cos(self.hand_pitch/2), 0, np.sin(self.hand_pitch/2), 0]))
+            mujoco.mju_negQuat(inverse_actual, actual_quaternion)
+            mujoco.mju_mulQuat(difference, desired_quaternion, inverse_actual)
+            if difference[0] < 0:
+                difference *= -1
+            angular_error = np.zeros(3)
+            mujoco.mju_quat2Vel(angular_error, difference, 1.0)
+            arm_jacobian = np.concatenate((arm_jacobian, angular_jacobian[:, self.arm_dof]))
+            error = np.concatenate((error, angular_error))
+        delta = arm_jacobian.T @ np.linalg.solve(arm_jacobian @ arm_jacobian.T + 0.01 * np.eye(len(error)), error)
         desired = np.clip(self.data.qpos[self.arm_qpos] + delta, self.lower, self.upper)
         self.reference = CONTROL["coordinated_joint_target"](batch(self.reference), batch(desired), self.runtime.control_dt)[0].numpy()
         if self.locked:
@@ -145,10 +169,10 @@ class BoxPushArmController:
 
 
 class BoxPushRuntime(BoxClimbRuntime):
-    def __init__(self, policy_path, *, model, data, box_geom, goal):
-        super().__init__(policy_path, model=model, data=data)
+    def __init__(self, policy_path, *, model, data, box_geom, goal, deploy_config=None, joint_names=JOINT_NAMES, base_body_name="base", arm_config=None):
+        super().__init__(policy_path, model=model, data=data, deploy_config=deploy_config, joint_names=joint_names, base_body_name=base_body_name)
         self.joint_velocity_limits[12:] = 3.0
-        self.arm = BoxPushArmController(self, box_geom, goal)
+        self.arm = BoxPushArmController(self, box_geom, goal, **(arm_config or {}))
         self.history = deque(maxlen=3)
         self.activate()
 

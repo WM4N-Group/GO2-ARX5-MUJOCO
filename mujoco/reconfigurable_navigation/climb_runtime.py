@@ -43,10 +43,14 @@ class ClimbRuntime:
         model: mujoco.MjModel | None = None,
         data: mujoco.MjData | None = None,
         deploy_config: Mapping[str, Any] | None = None,
+        joint_names: tuple[str, ...] = JOINT_NAMES,
+        base_body_name: str = "base",
+        linear_velocity_at_com: bool = False,
     ) -> None:
         if (model is None) != (data is None):
             raise ValueError("model and data must be provided together")
         self.owns_physics = model is None
+        self.linear_velocity_at_com = linear_velocity_at_com
         self.model = model or mujoco.MjModel.from_xml_path(str(XML_PATH))
         self.data = data or mujoco.MjData(self.model)
 
@@ -68,10 +72,12 @@ class ClimbRuntime:
         self.ctrl_low = self.model.actuator_ctrlrange[:, 0].copy()
         self.ctrl_high = self.model.actuator_ctrlrange[:, 1].copy()
 
-        joint_ids = np.array([self._joint_id(name) for name in JOINT_NAMES])
+        if len(joint_names) != 18 or len(set(joint_names)) != 18:
+            raise ValueError("Expected 18 unique joint names")
+        joint_ids = np.array([self._joint_id(name) for name in joint_names])
         self.joint_qpos_adr = self.model.jnt_qposadr[joint_ids].astype(int)
         self.joint_dof_adr = self.model.jnt_dofadr[joint_ids].astype(int)
-        self.base_id = self._body_id("base")
+        self.base_id = self._body_id(base_body_name)
         self.base_geom_ids = frozenset(
             index
             for index, body_id in enumerate(self.model.geom_bodyid)
@@ -151,6 +157,8 @@ class ClimbRuntime:
         rotation = np.empty(9, dtype=np.float64)
         mujoco.mju_quat2Mat(rotation, self.data.qpos[3:7])
         linear_velocity = rotation.reshape(3, 3).T @ self.data.qvel[:3]
+        if self.linear_velocity_at_com:
+            linear_velocity += np.cross(self.data.qvel[3:6], self.model.body_ipos[self.base_id])
         return linear_velocity, self.data.qvel[3:6].copy()
 
     def observation(self) -> np.ndarray:
@@ -266,6 +274,8 @@ class ClimbRuntime:
                 previous_joint_position + limited_joint_velocity * self.sim_dt
             )
             mujoco.mj_forward(self.model, self.data)
+            if getattr(self, "on_physics_step", None) is not None:
+                self.on_physics_step()
 
     def base_contacts_terrain(self) -> bool:
         for contact in self.data.contact[: self.data.ncon]:

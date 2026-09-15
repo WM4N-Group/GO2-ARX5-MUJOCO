@@ -14,7 +14,7 @@ class BoxPushLegAction(ActionTerm):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
         self.delegate = JointPositionAction(cfg, env)
-        self.controller = PushArmIK(env, hold_legs_until_ready=True, lock_arm_on_contact=True)
+        self.controller = PushArmIK(env, hold_legs_until_ready=True, lock_arm_on_contact=cfg.lock_arm_on_contact, align_hand_orientation=cfg.align_hand_orientation, hand_pitch=cfg.hand_pitch)
         self._raw = torch.zeros((env.num_envs, len(self.controller.leg_slots)), device=env.device)
         self.joint_commands = torch.zeros((env.num_envs, len(self.controller.leg_slots) + len(self.controller.action_slots)), device=env.device)
 
@@ -51,6 +51,9 @@ class BoxPushLegAction(ActionTerm):
 @configclass
 class BoxPushLegActionCfg(JointPositionActionCfg):
     class_type = BoxPushLegAction
+    lock_arm_on_contact: bool = True
+    align_hand_orientation: bool = False
+    hand_pitch: float = 0.0
 
 
 def applied_joint_commands(env):

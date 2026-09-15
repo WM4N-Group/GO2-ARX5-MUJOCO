@@ -26,6 +26,47 @@ class Actor(nn.Module):
 
 
 class InitializationChecks(unittest.TestCase):
+    def test_sequential_export_preserves_actor_outputs(self):
+        source = Actor(5, 3)
+        target = Actor(5, 3)
+        inputs = torch.randn(8, 5)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "actor.pt"
+            torch.jit.script(source.mlp).save(str(path))
+            initialize_models(target, None, actor_path=path)
+        torch.testing.assert_close(target(inputs), source(inputs))
+
+    def test_nav_to_climb_projection_preserves_repeated_state_outputs(self):
+        source = Actor(210, 18)
+        target = Actor(253, 18)
+        observations = torch.randn(16, 253)
+        navigation = torch.cat((
+            (observations[:, 3:6] * 0.2).repeat(1, 3),
+            observations[:, 6:9].repeat(1, 3),
+            observations[:, 12:30].repeat(1, 3),
+            (observations[:, 30:48] * 0.05).repeat(1, 3),
+            observations[:, 48:66].repeat(1, 3),
+            observations[:, 9:12].repeat(1, 3),
+            torch.tensor((0.5, 0.0, 0.4, 1.0, 0.0, 0.0, 0.0)).repeat(16, 3),
+        ), dim=1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "actor.pt"
+            torch.jit.trace(source, navigation).save(str(path))
+            initialize_models(target, None, actor_path=path, observation_layout="nav_to_climb")
+        torch.testing.assert_close(target(observations), source(navigation))
+        changed = observations.clone()
+        changed[:, :3] += 10.0
+        changed[:, 66:] += 10.0
+        torch.testing.assert_close(target(changed), target(observations))
+
+    def test_nav_to_climb_rejects_wrong_observation_dimensions(self):
+        source = Actor(3, 18)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "actor.pt"
+            torch.jit.trace(source, torch.zeros(1, 3)).save(str(path))
+            with self.assertRaisesRegex(ValueError, "210 -> 253"):
+                initialize_models(Actor(253, 18), None, actor_path=path, observation_layout="nav_to_climb")
+
     def test_explicit_action_selection_preserves_selected_outputs(self):
         source = Actor(3, 4)
         target = Actor(5, 2)

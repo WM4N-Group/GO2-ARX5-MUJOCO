@@ -10,6 +10,7 @@ import shutil
 import torch
 import yaml
 
+from skill_export_provenance import piper_robot_provenance
 
 ROOT = Path(__file__).resolve().parents[1]
 MDP = ROOT / "source/LeggedManip_Lab/LeggedManip_Lab/tasks/manager_based/leggedmanip_lab/mdp"
@@ -44,6 +45,7 @@ def main():
     parser.add_argument("--evaluation-json", type=Path, nargs="+", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--diagnostic", action="store_true")
+    parser.add_argument("--task", choices=("GO2-ARX5-Box-Climb-Play", "GO2-PIPER-Box-Climb-Play"), default="GO2-ARX5-Box-Climb-Play")
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error("Output directory must not already exist")
@@ -51,15 +53,21 @@ def main():
     evaluations = []
     for path in args.evaluation_json:
         report = json.loads(path.read_text())
-        if report["task"] != "GO2-ARX5-Box-Climb-Play" or report["checkpoint_sha256"] != checkpoint_hash:
+        if report["task"] != args.task or report["checkpoint_sha256"] != checkpoint_hash:
             raise ValueError("Evaluation does not match this CLIMB checkpoint")
+        if report.get("neutral_arm_diagnostic") or report.get("neutral_push_command_diagnostic"):
+            raise ValueError("Diagnostic overrides require a separate deployment contract")
         for name, expected in report["control_sha256"].items():
             if Path(name).name != name or digest(MDP / name) != expected:
                 raise ValueError(f"Evaluation controller differs: {name}")
         evaluations.append(report)
-    passed = all(report["requested_episodes"] >= 32 and not report["incomplete_episodes"] and report["successful_episodes"] / report["requested_episodes"] >= 29 / 32 for report in evaluations)
+    minimum_success = 30 / 32 if "PIPER" in args.task else 29 / 32
+    passed = all(report["requested_episodes"] >= 32 and not report["incomplete_episodes"] and report["successful_episodes"] / report["requested_episodes"] >= minimum_success for report in evaluations)
+    if "PIPER" in args.task:
+        passed &= len({report["seed"] for report in evaluations}) >= 2
     if not passed and not args.diagnostic:
         raise ValueError("Independent success gate failed; only diagnostic export is allowed")
+    robot_provenance = piper_robot_provenance(ROOT, args.checkpoint, evaluations) if "PIPER" in args.task else None
     start_sources = prepared_start_sources(args.checkpoint, evaluations)
     load_actor = runpy.run_path(str(ROOT / "scripts/rsl_rl/initialization.py"))["actor_from_state_dict"]
     actor = load_actor(torch.load(args.checkpoint, map_location="cpu", weights_only=False)["actor_state_dict"])
@@ -87,8 +95,9 @@ def main():
         if digest(destination) != source["sha256"]:
             raise ValueError("Prepared state copy differs from source")
     manifest = {
-        "schema_version": 1, "task": "GO2-ARX5-Box-Climb-Play", "diagnostic": args.diagnostic,
+        "schema_version": 1, "task": args.task, "diagnostic": args.diagnostic,
         "native_validation_passed": passed, "mujoco_physical_validation_passed": False,
+        "robot_provenance": robot_provenance,
         "checkpoint_sha256": checkpoint_hash, "policy_sha256": digest(args.output_dir / "policy.pt"),
         "actor_input_dimension": 253, "actor_output_dimension": 18,
         "control_sha256": evaluations[0]["control_sha256"],

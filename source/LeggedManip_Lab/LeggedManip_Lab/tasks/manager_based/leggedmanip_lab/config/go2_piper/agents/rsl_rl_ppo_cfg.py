@@ -20,6 +20,22 @@ from isaaclab_rl.rsl_rl import (
     RslRlPpoAlgorithmCfg,
 )
 
+from ...go2_arx5.agents.rsl_rl_ppo_cfg import (
+    Go2ARX5BoxClimbPPORunnerCfg,
+    Go2ARX5BoxPushHybridPPORunnerCfg,
+)
+
+
+@configclass
+class Go2PiperBoxClimbPPORunnerCfg(Go2ARX5BoxClimbPPORunnerCfg):
+    experiment_name = "go2_piper_box_climb"
+
+
+@configclass
+class Go2PiperBoxPushHybridPPORunnerCfg(Go2ARX5BoxPushHybridPPORunnerCfg):
+    experiment_name = "go2_piper_box_push_hybrid"
+
+
 # Flat
 @configclass
 class Go2PiperFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):

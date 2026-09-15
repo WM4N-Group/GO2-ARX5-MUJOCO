@@ -40,6 +40,7 @@ initialization_group = parser.add_mutually_exclusive_group()
 initialization_group.add_argument("--init_checkpoint", type=str, help="Initialize models from a trusted project checkpoint without optimizer or iteration state.")
 initialization_group.add_argument("--init_actor", type=str, help="Initialize an actor from trusted project TorchScript, preserving its input prefix.")
 initialization_group.add_argument("--init_leg_actor", type=str, help="Initialize the 12 leg outputs from the project's 18-action NAV TorchScript.")
+initialization_group.add_argument("--init_nav_for_climb", type=str, help="Project a 210-input NAV actor onto the 253-input single-frame CLIMB observation contract.")
 parser.add_argument("--initial_std", type=float, default=0.25, help="Exploration standard deviation after model initialization.")
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
@@ -186,7 +187,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
-    if args_cli.init_checkpoint or args_cli.init_actor or args_cli.init_leg_actor:
+    if args_cli.init_nav_for_climb:
+        expected_terms = ("base_lin_vel", "base_ang_vel", "projected_gravity", "velocity_commands", "joint_pos", "joint_vel", "actions", "height_scan")
+        if tuple(env.unwrapped.observation_manager.active_terms["policy"]) != expected_terms:
+            raise ValueError("NAV-to-CLIMB observation terms do not match the projection")
+        for name in expected_terms[:-1]:
+            if getattr(env_cfg.observations.policy, name).scale not in (None, 1.0):
+                raise ValueError(f"Unexpected CLIMB observation scale: {name}")
+    if args_cli.init_checkpoint or args_cli.init_actor or args_cli.init_leg_actor or args_cli.init_nav_for_climb:
         robot = env.unwrapped.scene["robot"]
         print(f"[SKILL] Bodies: {robot.body_names}")
         print(f"[SKILL] Joints: {robot.joint_names}")
@@ -246,16 +254,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
-    if args_cli.init_checkpoint or args_cli.init_actor or args_cli.init_leg_actor:
+    if args_cli.init_checkpoint or args_cli.init_actor or args_cli.init_leg_actor or args_cli.init_nav_for_climb:
         from initialization import initialize_models
 
         if agent_cfg.resume:
             raise ValueError("Model initialization and training resume are mutually exclusive")
         initialized = initialize_models(
             runner.alg.actor, runner.alg.critic,
-            checkpoint_path=args_cli.init_checkpoint, actor_path=args_cli.init_actor or args_cli.init_leg_actor,
+            checkpoint_path=args_cli.init_checkpoint, actor_path=args_cli.init_actor or args_cli.init_leg_actor or args_cli.init_nav_for_climb,
             initial_std=args_cli.initial_std,
             action_indices=list(range(12)) if args_cli.init_leg_actor else None,
+            observation_layout="nav_to_climb" if args_cli.init_nav_for_climb else "prefix",
         )
         print(f"[SKILL] Initialized new task models: {initialized}")
     # load the checkpoint

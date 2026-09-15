@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 import mujoco
@@ -56,10 +57,17 @@ class LocomotionRuntime:
         env: BlockedPassageEnv,
         policy_path: Path | str = POLICY_PATH,
         action_clip: float = 20.0,
+        *,
+        joint_names: tuple[str, ...] = JOINT_NAMES,
+        base_body_name: str = "base",
+        on_physics_step: Callable[[], None] | None = None,
     ) -> None:
         if action_clip <= 0.0:
             raise ValueError("action_clip must be positive")
+        if len(joint_names) != 18 or len(set(joint_names)) != 18:
+            raise ValueError("Expected 18 unique robot joint names")
         self.action_clip = action_clip
+        self.on_physics_step = on_physics_step
         self.env = env
         self.model = env.model
         self.data = env.data
@@ -76,7 +84,7 @@ class LocomotionRuntime:
         self.ctrl_low = self.model.actuator_ctrlrange[:, 0].copy()
         self.ctrl_high = self.model.actuator_ctrlrange[:, 1].copy()
 
-        joint_ids = np.array([self._joint_id(name) for name in JOINT_NAMES])
+        joint_ids = np.array([self._joint_id(name) for name in joint_names])
         self.joint_qpos_adr = self.model.jnt_qposadr[joint_ids].astype(int)
         self.joint_dof_adr = self.model.jnt_dofadr[joint_ids].astype(int)
         self.joint_low = self.model.jnt_range[joint_ids, 0].copy()
@@ -84,7 +92,7 @@ class LocomotionRuntime:
         if self.model.nu != 18:
             raise ValueError(f"Expected 18 actuators, got {self.model.nu}")
 
-        self.base_id = self._body_id("base")
+        self.base_id = self._body_id(base_body_name)
         self.robot_dof_adr = int(
             self.model.jnt_dofadr[self.env.robot_joint_id]
         )
@@ -174,6 +182,8 @@ class LocomotionRuntime:
             torque -= self.kd * joint_velocity
             self.data.ctrl[:] = np.clip(torque, self.ctrl_low, self.ctrl_high)
             mujoco.mj_step(self.model, self.data)
+            if self.on_physics_step is not None:
+                self.on_physics_step()
 
     def step(
         self,
