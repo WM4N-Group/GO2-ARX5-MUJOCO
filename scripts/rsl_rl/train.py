@@ -36,6 +36,11 @@ parser.add_argument(
 )
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
+initialization_group = parser.add_mutually_exclusive_group()
+initialization_group.add_argument("--init_checkpoint", type=str, help="Initialize models from a trusted project checkpoint without optimizer or iteration state.")
+initialization_group.add_argument("--init_actor", type=str, help="Initialize an actor from trusted project TorchScript, preserving its input prefix.")
+initialization_group.add_argument("--init_leg_actor", type=str, help="Initialize the 12 leg outputs from the project's 18-action NAV TorchScript.")
+parser.add_argument("--initial_std", type=float, default=0.25, help="Exploration standard deviation after model initialization.")
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
 )
@@ -181,6 +186,32 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
+    if args_cli.init_checkpoint or args_cli.init_actor or args_cli.init_leg_actor:
+        robot = env.unwrapped.scene["robot"]
+        print(f"[SKILL] Bodies: {robot.body_names}")
+        print(f"[SKILL] Joints: {robot.joint_names}")
+        print(f"[SKILL] Effort limits: {robot.data.joint_effort_limits[0].tolist()}")
+        for name, actuator in robot.actuators.items():
+            print(f"[SKILL] Actuator {name}: effort={actuator.effort_limit[0].tolist()} velocity={actuator.velocity_limit[0].tolist()}")
+        from pxr import Usd, UsdPhysics
+
+        stage = Usd.Stage.Open(robot.cfg.spawn.usd_path)
+        colliders = {}
+        for prim in stage.Traverse(Usd.TraverseInstanceProxies()):
+            if prim.HasAPI(UsdPhysics.CollisionAPI):
+                owner = prim
+                while owner.IsValid() and not owner.HasAPI(UsdPhysics.RigidBodyAPI):
+                    owner = owner.GetParent()
+                if owner.IsValid():
+                    colliders.setdefault(owner.GetName(), []).append(prim.GetName())
+        print(f"[SKILL] Collision owners: {colliders}")
+        if "box" in env.unwrapped.scene.rigid_objects:
+            box = env.unwrapped.scene["box"]
+            masses = box.root_physx_view.get_masses()
+            materials = box.root_physx_view.get_material_properties()
+            print(f"[SKILL] Box mass range: {masses.min().item():.4f}..{masses.max().item():.4f}")
+            print(f"[SKILL] Box sliding friction range: {materials[:, :, 1].min().item():.4f}..{materials[:, :, 1].max().item():.4f}")
+
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
@@ -215,6 +246,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
+    if args_cli.init_checkpoint or args_cli.init_actor or args_cli.init_leg_actor:
+        from initialization import initialize_models
+
+        if agent_cfg.resume:
+            raise ValueError("Model initialization and training resume are mutually exclusive")
+        initialized = initialize_models(
+            runner.alg.actor, runner.alg.critic,
+            checkpoint_path=args_cli.init_checkpoint, actor_path=args_cli.init_actor or args_cli.init_leg_actor,
+            initial_std=args_cli.initial_std,
+            action_indices=list(range(12)) if args_cli.init_leg_actor else None,
+        )
+        print(f"[SKILL] Initialized new task models: {initialized}")
     # load the checkpoint
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")

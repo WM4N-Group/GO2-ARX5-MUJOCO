@@ -210,6 +210,7 @@ python mujoco/deploy/deploy_mujoco/go2_piper/go2_piper.py config.yaml
 - [N1 技能快照、物理重放与候选 Pilot](docs/N1_REPLAY_DATA_CN.md)
 - [N1 技能过程事件、失败原因与本地验证](docs/N1_SKILL_EVENTS_CN.md)
 - [N2 参数化通道、物理扫描与候选数据](docs/N2_PASSAGE_SCENES_CN.md)
+- [正常摩擦推箱与低箱攀爬训练进展](docs/BOX_SKILL_TRAINING_CN.md)
 
 
 ---

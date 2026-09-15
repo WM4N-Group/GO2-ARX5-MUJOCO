@@ -1,5 +1,29 @@
 # 会话压缩与跨服务器 Agent 交接
 
+2026-09-14 最新继续任务已完成三轮候选训练，当前完整流程在全新seed500-531上，本地和服务器均为29/32（90.6%），逐回合结局及原因一致；失败510/525/528均为高台机身接触，PUSH和第一段登箱均32/32。组合使用既有PUSH200、第一阶段 `2026-09-14_19-08-05_prepared_ground_context/model_499.pt` 和高台 `2026-09-14_19-52-50_prepared_platform_gaps/model_399.pt`。包含四足静稳准备、实际箱面法线对位、NAV顶面定位；只有一次物理初始化、技能切换零物理reset。最终录像 `artifacts/box-skills/2026-09-14/box-to-platform-final-seed500.mp4` 约29.70s，743帧，配套JSON/预览同目录。详见 [箱体训练记录](BOX_SKILL_TRAINING_CN.md) 的连续起步章节。
+
+必须通过 `mujoco/run_box_support_sequence.py` 复现当前跨机器结果：它对子进程统一AVX2/单线程数值路径，并在报告记录后端。直接使用旧check入口的默认CPU路径，本地AVX2为29/32、服务器AVX512为27/32，微小推理差异会经接触动力学放大。当前显式入口已在这两台支持AVX2的x86机器验证，不改系统配置或旧生产runtime。最终本地报告 `box-sequence-final-local500.json`、服务器报告 `box-sequence-final-server500.json` 在产物目录。
+
+本轮索引是 `artifacts/box-skills/2026-09-14/continuous-climb-validation-v2.json`，绑定选用的PUSH200、prepared_ground499、prepared_platform_gaps399及最终录像；服务器副本在 `/mnt/yuanyue/data/box-skills-eval/`。早期索引 `mujoco-deployment-validation.json` 不覆盖，勿将其中18/32状态视为最新。当前6项起步/目标面、6项运行、4项地形和3项评估契约检查通过。2026-09-15 的 Git 更新范围为训练、部署和验收源码、机器人配置及文档；本轮训练权重、状态数据和录像继续在上述产物目录独立保存，未纳入代码仓库。实际提交和远端发布状态以 Git 历史为准。
+
+原生单策略状态：第一阶段prepared_ground499为32/32、31/32；最终高台gaps399为21/32（1.5cm间隙）、22/32（6cm），仍是diagnostic候选，不能用29/32组合结果冒充高台actor独立通过。高台训练400更新、921.12s已结束；当前无训练需要等待，不要重复启动旧active记录。起步数据只用于独立Isaac训练回合reset，MuJoCo技能切换不改写物理状态。训练seed16-31状态池与原生评估seed200-215状态池分离，导出包保存原始数据及hash；本轮保留原接受权重，未替换生产默认actor/Oracle。
+
+最新用户指令是接受当前 20 cm CLIMB 后“继续推进”。2026-09-14 已完成 20 cm 正常摩擦混合 PUSH 的独立 Isaac 验收：5 kg、摩擦 0.4、60 cm 目标，seed=103/104 各 31/32，每组一次无效手部接触失败，无未完成。用户需要通过移动箱体形成中间台阶登高台；已接受的 CLIMB actor 冻结。详见 [箱体技能训练记录](BOX_SKILL_TRAINING_CN.md)。暂缓世界模型训练、几何候选与大规模数据扩容。
+
+PUSH 使用新 `GO2-ARX5-Box-Push-Hybrid`：226 维输入、12 维腿部 actor 输出，由限速 IK 合成完整 18 维关节命令，保留力矩限制。当前 20 cm 候选是 `2026-09-14_01-53-59_height020_strict/model_200.pt`，不是最后的 model_299.pt，也不是此前 25 cm 的 model_399.pt。新增有向停车避免侧偏时越过目标继续推进；必须部署匹配的控制代码。新 policy SHA-256 为 `9668a27832ec34764a9f0a69ddc6b36b70fc133395403ca6fcdce91466773b82`，导出包 `push-height020-stop200-bundle` 已下载本地，随机输入和完整录像轨迹的数值对照均为 0 误差。旧部署 actor 未替换。
+
+CLIMB 趴地问题已修复：近地面初態、low_posture 失败和静止零收益后，固定箱 20/25/30 cm 为 30/32、26/32、0/32。用户接受 20 cm 阶段，25/30 cm 提升暂不作为下一优先项。现有实验性 MuJoCo Box-Climb 检查尚未通过随机起点门槛，需排查 adapter，不能把固定箱成功当作可移动支撑箱与高台组合已完成。
+
+2026-09-14 继续推进后，MuJoCo PUSH 已修复并通过 seed 0-31 和独立 100-131，各 32/32；原 20 cm CLIMB 在新固定箱 profile 中为 29/32。根因包括旧 MJCF 质量/惯量和 1 cm 安装偏移、将法向力误作合力、首命令延迟缓冲误用零目标。新 `mujoco/deploy/box_robot_profile.json` 复现训练实际 20.54928 kg 机器人（含 USD 的 1 kg 无碰撞末端刚体），48 匹配状态的几何/Jacobian/重力对照通过；这不是实机惯量校准。旧生产 runtime 和 actor 均未替换。
+
+真实移动箱到 40 cm 高台的无 reset 连续流程已跑通，独立 seed 100-131 为 18/32，尚未达到可靠组合技能要求。失败为第一段 CLIMB 6 次机身接触、2 次姿态失败，第二段 3 次机身接触、3 次姿态失败。报告 `artifacts/box-skills/2026-09-14/box-to-platform-heldout32.json`；已保存完整成功录像 `box-to-platform-success-seed1.mp4`（约 29.72 s）与对应 JSON、预览。流程包含真实 NAV 对位、收臂和箱顶定位；箱顶允许经质心支撑多边形检查的稳定三足姿态交接 NAV，最终仍需四足停稳一秒。只有一次物理初始化，所有切换均无物理 reset。
+
+高台使用独立派生候选 `go2_arx5_box_climb/2026-09-14_16-14-10_raised_approach/model_299.pt`，300 更新已完成（673.62 s）；原生 Isaac 两级固定支撑 seed106/107 为 23/32、26/32，其他均超时，未过单策略门槛。诊断导出包 `climb-raised299-diagnostic-bundle` 的 policy SHA-256 为 `8faf4f79802fdca25afad9b2e2f1370061b24134fcee46b9313391c8fa3bffdf`，两项验证标记仍为 false。不能替换已接受 standing_guard599 或宣称高台 actor 独立达标。下一项提高两段连续 CLIMB 的可靠性；当前训练已结束，不要按旧 active 标记重启。
+
+此前 seed100 阶段录像为本地 `artifacts/box-skills/2026-09-14/box-to-platform-success-seed100.mp4`（28.44 s、711 帧）及配套 JSON/预览；同目录 `mujoco-deployment-validation.json` 绑定该阶段结果、代码/资产和录像 hash。服务器当时复验 PUSH32/32、固定箱 CLIMB29/32、完整seed100成功和5项runtime契约。代码/文档备份在 `/mnt/yuanyue/backups/box-transfer-complete-fj2jAc/`，新源码与配置已同步；本地/服务器 MuJoCo 环境已安装 imageio 与 imageio-ffmpeg，pip check 均通过。本段为早期阶段记录，最新结果见文首。
+
+新录像在本地 `/home/yuanyue/re-nav/artifacts/box-skills/2026-09-14/push-height020-stop200.mp4`：约 5.96 秒，实际推移 0.51986 m，距 60 cm 目标误差 0.08101 m，符合 12 cm 容差。配套 `-video.json`、预览、导出包、MuJoCo 批量失败报告及 `box-support-sequence-rate-limited.json` 均在同目录。评估 schema v4 补记终止控制步的异常接触；旧 v3 的零异常步统计可能漏掉导致终止的接触，须同时读终止原因。
+
 整理日期：2026-09-11。项目：GO2-ARX5-MUJOCO，可重构导航分支。
 
 部署与开发更新：yuanyue 新机已完成 MuJoCo 与逐卡 Isaac 验收；N1 已完成技能边界记录、完整起点快照、跨进程重放和 600 请求/542 条执行记录的 pilot。最新开发边界见 [N1 快照与数据记录](N1_REPLAY_DATA_CN.md)，环境路径和已知冲突见 [新服务器记录](YUANYUE_SERVER_STATUS_CN.md)，不要将下文的早期生成时状态视为当前状态。

@@ -9,3 +9,5 @@ scipy>=1.10
 pyyaml>=6.0
 psutil>=5.9
 prettytable>=3.0
+imageio>=2.37,<3.0
+imageio-ffmpeg>=0.6,<1.0

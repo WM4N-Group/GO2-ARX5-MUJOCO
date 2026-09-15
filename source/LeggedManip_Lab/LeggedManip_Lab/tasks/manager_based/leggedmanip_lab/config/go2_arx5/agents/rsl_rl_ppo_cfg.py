@@ -67,6 +67,26 @@ class Go2ARX5ClimbPPORunnerCfg(Go2ARX5FlatPPORunnerCfg):
     experiment_name = "go2_arx5_climb"
     obs_groups = {"actor": ["policy"], "critic": ["policy"]}
 
+
+@configclass
+class Go2ARX5BoxClimbPPORunnerCfg(Go2ARX5ClimbPPORunnerCfg):
+    max_iterations = 3000
+    save_interval = 100
+    experiment_name = "go2_arx5_box_climb"
+
+
+@configclass
+class Go2ARX5BoxPushPPORunnerCfg(Go2ARX5FlatPPORunnerCfg):
+    max_iterations = 3000
+    save_interval = 100
+    experiment_name = "go2_arx5_box_push"
+    obs_groups = {"actor": ["policy", "box"], "critic": ["policy", "box"]}
+
+
+@configclass
+class Go2ARX5BoxPushHybridPPORunnerCfg(Go2ARX5BoxPushPPORunnerCfg):
+    experiment_name = "go2_arx5_box_push_hybrid"
+
 # WBC
 @configclass
 class Go2ARX5WBCPPORunnerCfg(RslRlOnPolicyRunnerCfg):
